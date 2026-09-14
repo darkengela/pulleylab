@@ -17,6 +17,16 @@ Design HTD timing pulleys, inspect the actual 3D solid, and download STEP files 
 pulleylabs_HTD_8M_24Teeth_20mmBelt_8mmBore_1mmClearance_2Flanges_1.5mmThick_2mmOverhang_0.4mmChamfer_NoHub.step
 ```
 
+## Ratio planner and shared finishes
+
+The side panel shows tooth-tip OD immediately as the tooth count changes, with flange OD available by hovering over the readout. The advanced drive ratio planner uses **driven teeth / drive teeth**: 3:1 means three drive revolutions per driven revolution.
+
+Set a target ratio, percent tolerance, separate tooth-count ranges, driven-shaft bore, and optional flange-inclusive OD limits. Both pulleys use the belt pitch, width, flanges, and hub from the main controls. Optional belt pitch length and minimum/maximum shaft spacing filter pairs using exact external tangent and pitch-circle arc geometry. Belt length must be an integer multiple of pitch. The filter reserves 1 mm between pulley flanges and at least six teeth engaged on the smaller pulley. It is a nominal geometry planner, not a torque or belt-life rating; confirm available belt sizes and allow tension adjustment.
+
+Generate both pulleys in one action, inspect them together or individually, then download one ZIP with two independent STEP solids, two STL files, and a settings file. Filenames distinguish drive/driven roles and include their build dimensions. Without a specified belt length, the preview spacing is illustrative. Both STEP parts are centered on their own shafts for positioning in Fusion.
+
+Shared URLs and new JSON presets preserve the finish and display style, and can restore a complete pair. Old single-pulley links and presets still work. Matte nylon is a dark gray, nonmetallic preview inspired by SLS nylon prints; it does not assign material properties to the exported files.
+
 ## Run locally
 
 Use Node.js 22.12 or later and npm.

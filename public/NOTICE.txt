@@ -35,3 +35,12 @@ This decorative asset is excluded from the GPL code license.
 
 This application is independent of Autodesk and the paid Autodesk Marketplace
 plugin. No code or assets from that plugin are included.
+
+Pair download packaging: fflate 0.8.3 — Arjun Barrett, MIT.
+https://github.com/101arrowz/fflate
+License: /licenses/fflate-LICENSE
+
+Ratio planning uses open-belt pitch-circle tangent geometry. Practical belt
+selection guidance: https://www.sdp-si.com/resources/beltdesignsuggestions.php
+The matte nylon option is a visual finish only; no material properties or
+manufacturer endorsement are implied.

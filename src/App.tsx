@@ -18,12 +18,18 @@ import {
 } from 'lucide-react';
 import type { FormEvent, ReactNode } from 'react';
 import Viewer from './components/Viewer';
+import RatioPlanner from './components/RatioPlanner';
+import PairWorkspace from './components/PairWorkspace';
+import type { PulleyPair } from './cad/ratio';
+import type { Appearance } from './appearance';
 import {
   DEFAULTS,
   PROFILES,
   dimensions,
   filename,
   readInitial,
+  parseBuild,
+  buildData,
   shareHash,
   validate,
 } from './cad/parameters';
@@ -98,6 +104,19 @@ function Modal({
 export default function App() {
   const [initial] = useState(readInitial),
     [p, setP] = useState<Parameters>(initial.parameters),
+    [appearance, setAppearance] = useState<Appearance>(initial.appearance),
+    [pair, setPair] = useState<PulleyPair | null>(
+      initial.driven
+        ? {
+            drive: initial.parameters,
+            driven: initial.driven,
+            ratio: initial.driven.teeth / initial.parameters.teeth,
+            error: 0,
+            centerDistance: initial.centerDistance,
+          }
+        : null,
+    ),
+    [pairBusy, setPairBusy] = useState(false),
     [result, setResult] = useState<PulleyResult | null>(null),
     [busy, setBusy] = useState(false),
     [stage, setStage] = useState('Loading CAD engine'),
@@ -127,7 +146,7 @@ export default function App() {
   }
   function generate(event?: FormEvent) {
     event?.preventDefault();
-    if (busy || !form.current?.reportValidity()) return;
+    if (busy || pairBusy || !form.current?.reportValidity()) return;
     let settings: Parameters;
     try {
       settings = validate(p);
@@ -135,6 +154,7 @@ export default function App() {
       setError((e as Error).message);
       return;
     }
+    setPair(null);
     cancel();
     const id = ++run.current;
     setBusy(true);
@@ -180,12 +200,24 @@ export default function App() {
     w.postMessage(settings);
   }
   useEffect(() => {
-    generate();
+    const openSharedBuild = () => {
+      if (location.hash.startsWith('#p=')) location.reload();
+    };
+    window.addEventListener('hashchange', openSharedBuild);
+    return () => window.removeEventListener('hashchange', openSharedBuild);
+  }, []);
+  useEffect(() => {
+    if (!initial.driven) generate();
     return () => {
       worker.current?.terminate();
       clearTimeout(timeout.current);
     };
   }, []);
+  useEffect(() => {
+    try {
+      localStorage.setItem('pulleylab:appearance:v1', JSON.stringify(appearance));
+    } catch {}
+  }, [appearance]);
   useEffect(() => {
     if (!toast) return;
     const t = setTimeout(() => setToast(''), 3200);
@@ -231,7 +263,16 @@ export default function App() {
     try {
       const valid = validate(p);
       saveFile(
-        new Blob([JSON.stringify(valid, null, 2) + '\n'], { type: 'application/json' }),
+        new Blob(
+          [
+            JSON.stringify(
+              buildData(valid, appearance, pair?.driven, pair?.centerDistance),
+              null,
+              2,
+            ) + '\n',
+          ],
+          { type: 'application/json' },
+        ),
         filename(valid, 'json'),
       );
       setToast('Settings saved');
@@ -243,8 +284,20 @@ export default function App() {
     if (!f) return;
     try {
       if (f.size > 16384) throw Error('Choose a settings file smaller than 16 KB.');
-      const settings = validate(JSON.parse(await f.text()));
-      setP(settings);
+      const settings = parseBuild(JSON.parse(await f.text()));
+      setP(settings.parameters);
+      setAppearance(settings.appearance);
+      setPair(
+        settings.driven
+          ? {
+              drive: settings.parameters,
+              driven: settings.driven,
+              ratio: settings.driven.teeth / settings.parameters.teeth,
+              error: 0,
+              centerDistance: settings.centerDistance,
+            }
+          : null,
+      );
       setError('');
       setToast('Settings loaded. Generate to update your pulley.');
     } catch (e) {
@@ -256,20 +309,26 @@ export default function App() {
   const share = async () => {
     try {
       validate(p);
+      if (pair && JSON.stringify(p) !== JSON.stringify(pair.drive))
+        throw Error('Generate an updated pair before sharing, or switch to a single pulley.');
     } catch (e) {
       setError((e as Error).message);
       return;
     }
     try {
-      const url = location.origin + location.pathname + shareHash(p);
+      const url =
+        location.origin +
+        location.pathname +
+        shareHash(p, appearance, pair?.driven, pair?.centerDistance);
       if (!navigator.clipboard) throw Error('Clipboard unavailable');
       await navigator.clipboard.writeText(url);
-      setToast('Link copied — opens with your dimensions');
+      setToast('Link copied — dimensions and finish included');
     } catch {
       setModal('share');
     }
   };
   const reset = () => {
+    setPair(null);
     setP({ ...DEFAULTS });
     setError('');
     setToast('8M starter settings restored');
@@ -299,6 +358,7 @@ export default function App() {
           <span>Share build</span>
         </button>
       </header>
+      <form id="ratio-requirements" hidden onSubmit={(e) => e.preventDefault()} />
       <main id="workspace">
         <section className="page-intro">
           <div>
@@ -326,7 +386,16 @@ export default function App() {
                 <Settings2 size={18} />
                 <h2>Build your pulley</h2>
               </div>
-              <span className="units-badge">mm</span>
+              <div
+                className="live-od"
+                aria-live="polite"
+                title={`Tooth-tip OD. ${p.flanges !== 'none' && Number.isFinite(d.flange) ? `Flange OD: ${d.flange.toFixed(2)} mm.` : ''}`}
+              >
+                <span>OD · tooth tips</span>
+                <output aria-label="Live pulley outside diameter">
+                  {Number.isFinite(d.outside) ? d.outside.toFixed(2) : '—'} <small>mm</small>
+                </output>
+              </div>
             </div>
             <form ref={form} onSubmit={generate}>
               <div className="control-fields">
@@ -395,33 +464,44 @@ export default function App() {
                     </div>
                   )}
                 </section>
-                <section className="advanced-section">
-                  <button
-                    type="button"
-                    className="advanced-toggle"
-                    aria-expanded={advanced}
-                    aria-controls="advanced-options"
-                    onClick={() => setAdvanced(!advanced)}
-                  >
-                    <span>
-                      <SlidersHorizontal size={15} />
-                      Chamfer & hub
-                    </span>
-                    <ChevronRight size={15} className={advanced ? 'expanded' : ''} />
-                  </button>
-                  {advanced && (
-                    <div id="advanced-options" className="advanced-fields">
-                      {p.flanges !== 'none' && field('chamfer', 'Flange chamfer', { max: 5 })}
-                      <div className="input-row">
-                        {field('hub_diameter', 'Hub diameter')}
-                        {field('hub_length', 'Hub length', { max: 100 })}
+                <div className={`advanced-controls ${advanced ? 'is-expanded' : ''}`}>
+                  <section className="advanced-section">
+                    <button
+                      type="button"
+                      className="advanced-toggle"
+                      aria-expanded={advanced}
+                      aria-controls="advanced-options"
+                      onClick={() => setAdvanced(!advanced)}
+                    >
+                      <span>
+                        <SlidersHorizontal size={15} />
+                        Chamfer & hub
+                      </span>
+                      <ChevronRight size={15} className={advanced ? 'expanded' : ''} />
+                    </button>
+                    {advanced && (
+                      <div id="advanced-options" className="advanced-fields">
+                        {p.flanges !== 'none' && field('chamfer', 'Flange chamfer', { max: 5 })}
+                        <div className="input-row">
+                          {field('hub_diameter', 'Hub diameter')}
+                          {field('hub_length', 'Hub length', { max: 100 })}
+                        </div>
+                        <p className="field-hint">
+                          A hub extends from the bottom. Leave length at 0 to omit it.
+                        </p>
                       </div>
-                      <p className="field-hint">
-                        A hub extends from the bottom. Leave length at 0 to omit it.
-                      </p>
-                    </div>
-                  )}
-                </section>
+                    )}
+                  </section>
+                  <RatioPlanner
+                    parameters={p}
+                    busy={busy || pairBusy}
+                    onGenerate={(selected) => {
+                      setP(selected.drive);
+                      setPair(selected);
+                      setError('');
+                    }}
+                  />
+                </div>
                 {error && (
                   <p role="alert" className="error-message">
                     <CircleHelp size={15} />
@@ -430,13 +510,27 @@ export default function App() {
                 )}
               </div>
               <div className="generate-area">
-                <button className="generate-button" type="submit" disabled={busy}>
+                <button className="generate-button" type="submit" disabled={busy || pairBusy}>
                   {busy ? <LoaderCircle size={17} className="spin" /> : <BoxIcon />}
-                  <span>{busy ? 'Generating pulley…' : 'Generate pulley'}</span>
+                  <span>
+                    {pairBusy
+                      ? 'Generating pair…'
+                      : busy
+                        ? 'Generating pulley…'
+                        : 'Generate pulley'}
+                  </span>
                   {!busy && <ArrowUpRight size={17} />}
                 </button>
-                {busy && (
-                  <button className="cancel-button" type="button" onClick={cancel}>
+                {(busy || pairBusy) && (
+                  <button
+                    className="cancel-button"
+                    type="button"
+                    onClick={() => {
+                      cancel();
+                      setPair(null);
+                      setPairBusy(false);
+                    }}
+                  >
                     Cancel generation
                   </button>
                 )}
@@ -465,74 +559,89 @@ export default function App() {
             </form>
           </aside>
           <section className="model-workspace" aria-label="Pulley preview and downloads">
-            <Viewer
-              mesh={result?.mesh ?? null}
-              busy={busy}
-              stage={stage}
-              dirty={!!result && dirty}
-              label={
-                result
-                  ? `HTD ${result.parameters.profile} · ${result.parameters.teeth} teeth`
-                  : `HTD ${p.profile} · ${p.teeth || '—'} teeth`
-              }
-            />
-            <div className="dimension-grid">
-              {[
-                { label: 'Pitch diameter', value: d.pitch },
-                { label: 'Outside diameter', value: d.outside },
-                { label: 'Face width', value: d.face },
-                { label: 'Overall width', value: d.total },
-              ].map((x) => (
-                <div key={x.label}>
-                  <span>{x.label}</span>
-                  <strong>
-                    {Number.isFinite(x.value) ? x.value.toFixed(2) : '—'}
-                    <small>mm</small>
-                  </strong>
+            {pair ? (
+              <PairWorkspace
+                pair={pair}
+                appearance={appearance}
+                onAppearanceChange={setAppearance}
+                onBusyChange={setPairBusy}
+                onBack={() => setPair(null)}
+                dirty={JSON.stringify(p) !== JSON.stringify(pair.drive)}
+              />
+            ) : (
+              <>
+                <Viewer
+                  mesh={result?.mesh ?? null}
+                  appearance={appearance}
+                  onAppearanceChange={setAppearance}
+                  busy={busy}
+                  stage={stage}
+                  dirty={!!result && dirty}
+                  label={
+                    result
+                      ? `HTD ${result.parameters.profile} · ${result.parameters.teeth} teeth`
+                      : `HTD ${p.profile} · ${p.teeth || '—'} teeth`
+                  }
+                />
+                <div className="dimension-grid">
+                  {[
+                    { label: 'Pitch diameter', value: d.pitch },
+                    { label: 'Outside diameter', value: d.outside },
+                    { label: 'Face width', value: d.face },
+                    { label: 'Overall width', value: d.total },
+                  ].map((x) => (
+                    <div key={x.label}>
+                      <span>{x.label}</span>
+                      <strong>
+                        {Number.isFinite(x.value) ? x.value.toFixed(2) : '—'}
+                        <small>mm</small>
+                      </strong>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-            <div className="export-section">
-              <div className="export-heading">
-                <span className="export-icon">
-                  <ArrowDownToLine size={21} strokeWidth={1.4} />
-                </span>
-                <div>
-                  <h2>From your screen to your workbench.</h2>
-                  <p>
-                    {busy
-                      ? 'Building the solid on your device…'
-                      : dirty && result
-                        ? 'Your settings changed. Generate to update the model.'
-                        : result
-                          ? `One solid · Millimeters · Generated in ${result.seconds.toFixed(1)}s`
-                          : 'A solid STEP file, ready to open in Fusion.'}
-                  </p>
+                <div className="export-section">
+                  <div className="export-heading">
+                    <span className="export-icon">
+                      <ArrowDownToLine size={21} strokeWidth={1.4} />
+                    </span>
+                    <div>
+                      <h2>From your screen to your workbench.</h2>
+                      <p>
+                        {busy
+                          ? 'Building the solid on your device…'
+                          : dirty && result
+                            ? 'Your settings changed. Generate to update the model.'
+                            : result
+                              ? `One solid · Millimeters · Generated in ${result.seconds.toFixed(1)}s`
+                              : 'A solid STEP file, ready to open in Fusion.'}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="export-buttons">
+                    <button
+                      className="download-button"
+                      disabled={!canDownload}
+                      onClick={() => exportFile('step')}
+                    >
+                      <Download size={17} />
+                      Download STEP
+                    </button>
+                    <button
+                      className="button glass stl-button"
+                      disabled={!canDownload}
+                      onClick={() => exportFile('stl')}
+                    >
+                      STL
+                      <Download size={14} />
+                    </button>
+                  </div>
+                  <div className="file-label">
+                    <span>FILE NAME</span>
+                    <code title={filename(p, 'step')}>{filename(p, 'step')}</code>
+                  </div>
                 </div>
-              </div>
-              <div className="export-buttons">
-                <button
-                  className="download-button"
-                  disabled={!canDownload}
-                  onClick={() => exportFile('step')}
-                >
-                  <Download size={17} />
-                  Download STEP
-                </button>
-                <button
-                  className="button glass stl-button"
-                  disabled={!canDownload}
-                  onClick={() => exportFile('stl')}
-                >
-                  STL
-                  <Download size={14} />
-                </button>
-              </div>
-              <div className="file-label">
-                <span>FILE NAME</span>
-                <code title={filename(p, 'step')}>{filename(p, 'step')}</code>
-              </div>
-            </div>
+              </>
+            )}
           </section>
         </div>
         <div className="workspace-notes">
@@ -617,11 +726,15 @@ export default function App() {
       )}
       {modal === 'share' && (
         <Modal title="Share this build" onClose={() => setModal(null)}>
-          <p>Copy this link to open PulleyLab with these dimensions.</p>
+          <p>Copy this link to open PulleyLab with these dimensions and preview finish.</p>
           <textarea
             className="share-url"
             readOnly
-            value={location.origin + location.pathname + shareHash(p)}
+            value={
+              location.origin +
+              location.pathname +
+              shareHash(p, appearance, pair?.driven, pair?.centerDistance)
+            }
             onFocus={(e) => e.target.select()}
           />
         </Modal>

@@ -3,32 +3,45 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { Box, Grid2X2, RotateCcw, Scan, ZoomIn, ZoomOut } from 'lucide-react';
+import type { ReactNode } from 'react';
+import { FINISHES } from '../appearance';
+import type { Appearance, DisplayMode, Finish } from '../appearance';
 import type { ShapeMesh } from 'replicad';
 type View = 'perspective' | 'top' | 'side';
-type DisplayMode = 'solid' | 'xray' | 'wireframe' | 'clay';
 type Props = {
   mesh: ShapeMesh | null;
   busy: boolean;
   stage: string;
   dirty: boolean;
   label: string;
+  appearance: Appearance;
+  onAppearanceChange: (appearance: Appearance) => void;
+  selection?: ReactNode;
 };
-export default function Viewer({ mesh, busy, stage, dirty, label }: Props) {
+export default function Viewer({
+  mesh,
+  busy,
+  stage,
+  dirty,
+  label,
+  appearance,
+  onAppearanceChange,
+  selection,
+}: Props) {
   const host = useRef<HTMLDivElement>(null),
     api = useRef<{
       view: (v: View) => void;
       grid: () => void;
       wire: () => void;
       zoom: (n: number) => void;
-      material: (c: number) => void;
+      material: (finish: Finish) => void;
       mode: (mode: DisplayMode) => void;
     } | null>(null);
   const [failed, setFailed] = useState(false),
     [grid, setGrid] = useState(false),
     [wire, setWire] = useState(false),
-    [view, setView] = useState<View>('perspective'),
-    [mode, setMode] = useState<DisplayMode>('solid'),
-    [finish, setFinish] = useState(0xb8c7d0);
+    [view, setView] = useState<View>('perspective');
+  const { finish, mode } = appearance;
   useEffect(() => {
     if (!host.current || !mesh) return;
     setFailed(false);
@@ -59,7 +72,8 @@ export default function Viewer({ mesh, busy, stage, dirty, label }: Props) {
       scene.add(rim);
       scene.add(new THREE.AmbientLight(0xe6f4ff, 0.6));
       const geometry = new THREE.BufferGeometry();
-      let size = 70;
+      let size = 70,
+        wideModel = false;
       if (mesh) {
         geometry.setAttribute('position', new THREE.Float32BufferAttribute(mesh.vertices, 3));
         geometry.setAttribute('normal', new THREE.Float32BufferAttribute(mesh.normals, 3));
@@ -71,12 +85,13 @@ export default function Viewer({ mesh, busy, stage, dirty, label }: Props) {
         const bounds = new THREE.Vector3();
         geometry.boundingBox!.getSize(bounds);
         size = Math.max(bounds.x, bounds.y, bounds.z);
+        wideModel = bounds.x > bounds.y * 1.5;
       }
       const material = new THREE.MeshPhysicalMaterial({
-        color: finish,
-        metalness: 0.92,
-        roughness: 0.27,
-        clearcoat: 0.22,
+        color: FINISHES[finish].color,
+        metalness: FINISHES[finish].metalness,
+        roughness: FINISHES[finish].roughness,
+        clearcoat: FINISHES[finish].clearcoat,
         clearcoatRoughness: 0.26,
       });
       const xrayMaterial = new THREE.MeshBasicMaterial({
@@ -145,7 +160,10 @@ export default function Viewer({ mesh, busy, stage, dirty, label }: Props) {
         camera.updateProjectionMatrix();
       };
       const selectView = (v: View) => {
-        const distance = size * (node.clientWidth / node.clientHeight < 1 ? 2.3 : 1.6);
+        const portrait = node.clientWidth / node.clientHeight < 1;
+        const distance =
+          size *
+          (wideModel && v === 'perspective' ? (portrait ? 1.65 : 1.1) : portrait ? 2.3 : 1.6);
         camera.position.copy(
           v === 'top'
             ? new THREE.Vector3(0.001, 0, distance)
@@ -186,7 +204,11 @@ export default function Viewer({ mesh, busy, stage, dirty, label }: Props) {
           updateDisplay();
         },
         material: (c) => {
-          material.color.setHex(c);
+          const selected = FINISHES[c];
+          material.color.setHex(selected.color);
+          material.metalness = selected.metalness;
+          material.roughness = selected.roughness;
+          material.clearcoat = selected.clearcoat;
         },
       };
       dispose = () => {
@@ -219,16 +241,21 @@ export default function Viewer({ mesh, busy, stage, dirty, label }: Props) {
     // Rebuild only when the generated geometry changes; toolbar state updates through api.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mesh]);
+  useEffect(() => {
+    api.current?.material(finish);
+    api.current?.mode(mode);
+  }, [finish, mode]);
   const changeView = (v: View) => {
     setView(v);
     api.current?.view(v);
   };
   return (
-    <div className="viewer" data-display-mode={mode}>
+    <div className="viewer" data-display-mode={mode} data-finish={finish}>
       <div className="viewer-top">
         <div className="viewer-caption">
           <span className="eyebrow">YOUR PULLEY</span>
           <h2>{label}</h2>
+          {selection}
         </div>
         <span className={`status-pill ${dirty ? 'is-dirty' : ''}`}>
           <span className="status-light" />
@@ -299,8 +326,7 @@ export default function Viewer({ mesh, busy, stage, dirty, label }: Props) {
             value={mode}
             onChange={(event) => {
               const nextMode = event.target.value as DisplayMode;
-              setMode(nextMode);
-              api.current?.mode(nextMode);
+              onAppearanceChange({ ...appearance, mode: nextMode });
             }}
           >
             <option value="solid">Solid</option>
@@ -358,21 +384,16 @@ export default function Viewer({ mesh, busy, stage, dirty, label }: Props) {
         </span>
         <div className="finish-picker" aria-label="Preview material" hidden={mode !== 'solid'}>
           <span>Finish</span>
-          {[
-            { name: 'Silver', color: 0xb8c7d0 },
-            { name: 'Graphite', color: 0x454d58 },
-            { name: 'Copper', color: 0xb87346 },
-          ].map((c) => (
+          {Object.entries(FINISHES).map(([id, c]) => (
             <button
               key={c.name}
               title={`${c.name} preview`}
               aria-label={`${c.name} preview`}
-              aria-pressed={finish === c.color}
-              className={finish === c.color ? 'selected' : ''}
+              aria-pressed={finish === id}
+              className={finish === id ? 'selected' : ''}
               style={{ background: '#' + c.color.toString(16).padStart(6, '0') }}
               onClick={() => {
-                setFinish(c.color);
-                api.current?.material(c.color);
+                onAppearanceChange({ ...appearance, finish: id as Finish });
               }}
             />
           ))}

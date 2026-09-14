@@ -1,3 +1,5 @@
+import { DEFAULT_APPEARANCE, validateAppearance } from '../appearance';
+import type { Appearance } from '../appearance';
 export const PROFILES = {
   '3M': { pitch: 3, offset: 0.381, depth: 1.21, radius: 0.89, fillet: 0.26 },
   '5M': { pitch: 5, offset: 0.5715, depth: 2.16, radius: 1.6, fillet: 0.48 },
@@ -118,24 +120,84 @@ export function filename(p: Parameters, extension?: 'step' | 'stl' | 'json') {
   parts.push(p.hub_length > 0 ? `${num(p.hub_diameter)}x${num(p.hub_length)}mmHub` : 'NoHub');
   return parts.join('_') + (extension ? '.' + extension : '');
 }
-export function shareHash(p: Parameters) {
-  return '#p=' + encodeURIComponent(JSON.stringify(p));
+
+export type SavedBuild = {
+  parameters: Parameters;
+  appearance: Appearance;
+  driven?: Parameters;
+  centerDistance?: number;
+};
+export function parseBuild(raw: unknown): SavedBuild {
+  if (raw && typeof raw === 'object' && 'version' in raw) {
+    const data = raw as {
+      version: number;
+      parameters: unknown;
+      appearance: unknown;
+      driven?: unknown;
+      centerDistance?: number;
+    };
+    if (data.version !== 2) throw Error('This build version is not supported.');
+    const parameters = validate(data.parameters),
+      appearance = validateAppearance(data.appearance);
+    const driven = data.driven === undefined ? undefined : validate(data.driven);
+    if (
+      driven &&
+      (driven.profile !== parameters.profile || driven.belt_width !== parameters.belt_width)
+    )
+      throw Error('Both pulleys must use the same belt pitch and width.');
+    if (
+      data.centerDistance !== undefined &&
+      (!driven ||
+        !Number.isFinite(data.centerDistance) ||
+        data.centerDistance < (dimensions(parameters).flange + dimensions(driven).flange) / 2 ||
+        data.centerDistance > 20000)
+    )
+      throw Error('Invalid pair spacing.');
+    return { parameters, appearance, driven, centerDistance: data.centerDistance };
+  }
+  return { parameters: validate(raw), appearance: { ...DEFAULT_APPEARANCE } };
 }
-export function readInitial(): { parameters: Parameters; message?: string } {
+export function buildData(
+  p: Parameters,
+  appearance: Appearance = DEFAULT_APPEARANCE,
+  driven?: Parameters,
+  centerDistance?: number,
+) {
+  const data = { version: 2, parameters: p, appearance, driven, centerDistance };
+  parseBuild(data);
+  return data;
+}
+export function shareHash(
+  p: Parameters,
+  appearance: Appearance = DEFAULT_APPEARANCE,
+  driven?: Parameters,
+  centerDistance?: number,
+) {
+  return (
+    '#p=' + encodeURIComponent(JSON.stringify(buildData(p, appearance, driven, centerDistance)))
+  );
+}
+export function readInitial(): SavedBuild & { message?: string } {
   try {
     if (location.hash.startsWith('#p=')) {
-      if (location.hash.length > 6000) throw Error('Shared settings are too large.');
-      return { parameters: validate(JSON.parse(decodeURIComponent(location.hash.slice(3)))) };
+      if (location.hash.length > 10000) throw Error('Shared settings are too large.');
+      return parseBuild(JSON.parse(decodeURIComponent(location.hash.slice(3))));
     }
   } catch {
     return {
       parameters: DEFAULTS,
+      appearance: { ...DEFAULT_APPEARANCE },
       message: 'This shared configuration could not be loaded. Showing the 8M starter instead.',
     };
   }
+  let appearance = { ...DEFAULT_APPEARANCE };
+  try {
+    const value = localStorage.getItem('pulleylab:appearance:v1');
+    if (value) appearance = validateAppearance(JSON.parse(value));
+  } catch {}
   try {
     const stored = localStorage.getItem('pulleylab:settings:v1');
-    if (stored) return { parameters: validate(JSON.parse(stored)) };
+    if (stored) return { parameters: validate(JSON.parse(stored)), appearance };
   } catch {}
-  return { parameters: DEFAULTS };
+  return { parameters: DEFAULTS, appearance };
 }
