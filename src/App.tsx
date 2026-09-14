@@ -329,104 +329,106 @@ export default function App() {
               <span className="units-badge">mm</span>
             </div>
             <form ref={form} onSubmit={generate}>
-              <section className="control-section">
-                <div className="section-label">
-                  <span>01</span>
-                  <h3>Tooth profile</h3>
-                </div>
-                <div className="profile-tabs" role="group" aria-label="HTD belt pitch">
-                  {Object.keys(PROFILES).map((profile) => (
-                    <button
-                      type="button"
-                      key={profile}
-                      className={p.profile === profile ? 'selected' : ''}
-                      aria-pressed={p.profile === profile}
-                      onClick={() => set('profile', profile as Profile)}
-                    >
-                      <span>HTD</span>
-                      {profile}
-                    </button>
-                  ))}
-                </div>
-                <div className="input-row">
-                  {field('teeth', 'Tooth count', { min: 12, max: 240, step: 1, unit: false })}
-                  {field('bore', 'Bore diameter', { hint: 'Set to zero for a solid center.' })}
-                </div>
-              </section>
-              <section className="control-section">
-                <div className="section-label">
-                  <span>02</span>
-                  <h3>Belt & clearance</h3>
-                </div>
-                <div className="input-row">
-                  {field('belt_width', 'Belt width', { min: 0.5, max: 200 })}
-                  {field('clearance', 'Extra space', {
-                    max: 10,
-                    hint: 'Total extra space across the face; not per side.',
-                  })}
-                </div>
-              </section>
-              <section className="control-section">
-                <div className="section-label">
-                  <span>03</span>
-                  <h3>Flanges</h3>
-                </div>
-                <div className="select-shell">
-                  <select
-                    aria-label="Flange arrangement"
-                    value={p.flanges}
-                    onChange={(e) => set('flanges', e.target.value)}
-                  >
-                    <option value="both">Both sides</option>
-                    <option value="bottom">Bottom only</option>
-                    <option value="none">No flanges</option>
-                  </select>
-                  <ChevronDown size={15} />
-                </div>
-                {p.flanges !== 'none' && (
+              <div className="control-fields">
+                <section className="control-section">
+                  <div className="section-label">
+                    <span>01</span>
+                    <h3>Tooth profile</h3>
+                  </div>
+                  <div className="profile-tabs" role="group" aria-label="HTD belt pitch">
+                    {Object.keys(PROFILES).map((profile) => (
+                      <button
+                        type="button"
+                        key={profile}
+                        className={p.profile === profile ? 'selected' : ''}
+                        aria-pressed={p.profile === profile}
+                        onClick={() => set('profile', profile as Profile)}
+                      >
+                        <span>HTD</span>
+                        {profile}
+                      </button>
+                    ))}
+                  </div>
                   <div className="input-row">
-                    {field('flange_thickness', 'Thickness', { min: 0.2, max: 15 })}
-                    {field('flange_overhang', 'Overhang', {
-                      min: 0.2,
-                      max: 20,
-                      hint: 'Radial distance beyond the tooth tips.',
+                    {field('teeth', 'Tooth count', { min: 12, max: 240, step: 1, unit: false })}
+                    {field('bore', 'Bore diameter', { hint: 'Set to zero for a solid center.' })}
+                  </div>
+                </section>
+                <section className="control-section">
+                  <div className="section-label">
+                    <span>02</span>
+                    <h3>Belt & clearance</h3>
+                  </div>
+                  <div className="input-row">
+                    {field('belt_width', 'Belt width', { min: 0.5, max: 200 })}
+                    {field('clearance', 'Extra space', {
+                      max: 10,
+                      hint: 'Total extra space across the face; not per side.',
                     })}
                   </div>
-                )}
-              </section>
-              <section className="advanced-section">
-                <button
-                  type="button"
-                  className="advanced-toggle"
-                  aria-expanded={advanced}
-                  aria-controls="advanced-options"
-                  onClick={() => setAdvanced(!advanced)}
-                >
-                  <span>
-                    <SlidersHorizontal size={15} />
-                    Chamfer & hub
-                  </span>
-                  <ChevronRight size={15} className={advanced ? 'expanded' : ''} />
-                </button>
-                {advanced && (
-                  <div id="advanced-options" className="advanced-fields">
-                    {p.flanges !== 'none' && field('chamfer', 'Flange chamfer', { max: 5 })}
-                    <div className="input-row">
-                      {field('hub_diameter', 'Hub diameter')}
-                      {field('hub_length', 'Hub length', { max: 100 })}
-                    </div>
-                    <p className="field-hint">
-                      A hub extends from the bottom. Leave length at 0 to omit it.
-                    </p>
+                </section>
+                <section className="control-section">
+                  <div className="section-label">
+                    <span>03</span>
+                    <h3>Flanges</h3>
                   </div>
+                  <div className="select-shell">
+                    <select
+                      aria-label="Flange arrangement"
+                      value={p.flanges}
+                      onChange={(e) => set('flanges', e.target.value)}
+                    >
+                      <option value="both">Both sides</option>
+                      <option value="bottom">Bottom only</option>
+                      <option value="none">No flanges</option>
+                    </select>
+                    <ChevronDown size={15} />
+                  </div>
+                  {p.flanges !== 'none' && (
+                    <div className="input-row">
+                      {field('flange_thickness', 'Thickness', { min: 0.2, max: 15 })}
+                      {field('flange_overhang', 'Overhang', {
+                        min: 0.2,
+                        max: 20,
+                        hint: 'Radial distance beyond the tooth tips.',
+                      })}
+                    </div>
+                  )}
+                </section>
+                <section className="advanced-section">
+                  <button
+                    type="button"
+                    className="advanced-toggle"
+                    aria-expanded={advanced}
+                    aria-controls="advanced-options"
+                    onClick={() => setAdvanced(!advanced)}
+                  >
+                    <span>
+                      <SlidersHorizontal size={15} />
+                      Chamfer & hub
+                    </span>
+                    <ChevronRight size={15} className={advanced ? 'expanded' : ''} />
+                  </button>
+                  {advanced && (
+                    <div id="advanced-options" className="advanced-fields">
+                      {p.flanges !== 'none' && field('chamfer', 'Flange chamfer', { max: 5 })}
+                      <div className="input-row">
+                        {field('hub_diameter', 'Hub diameter')}
+                        {field('hub_length', 'Hub length', { max: 100 })}
+                      </div>
+                      <p className="field-hint">
+                        A hub extends from the bottom. Leave length at 0 to omit it.
+                      </p>
+                    </div>
+                  )}
+                </section>
+                {error && (
+                  <p role="alert" className="error-message">
+                    <CircleHelp size={15} />
+                    {error}
+                  </p>
                 )}
-              </section>
-              {error && (
-                <p role="alert" className="error-message">
-                  <CircleHelp size={15} />
-                  {error}
-                </p>
-              )}
+              </div>
               <div className="generate-area">
                 <button className="generate-button" type="submit" disabled={busy}>
                   {busy ? <LoaderCircle size={17} className="spin" /> : <BoxIcon />}
@@ -462,7 +464,7 @@ export default function App() {
               />
             </form>
           </aside>
-          <section className="model-panel glass" aria-label="Pulley preview and downloads">
+          <section className="model-workspace" aria-label="Pulley preview and downloads">
             <Viewer
               mesh={result?.mesh ?? null}
               busy={busy}

@@ -561,15 +561,10 @@ h2 {
   color: #afc2ce;
   padding: 12px;
 }
-.model-panel {
-  border-radius: 22px;
-  overflow: hidden;
-  background:
-    linear-gradient(140deg, rgba(167, 209, 237, 0.08), rgba(72, 101, 129, 0.025) 70%),
-    rgba(15, 23, 33, 0.24);
-  backdrop-filter: blur(13px) saturate(130%);
-  -webkit-backdrop-filter: blur(13px) saturate(130%);
+.model-workspace {
+  min-width: 0;
 }
+
 .viewer {
   height: 420px;
   position: relative;
@@ -741,7 +736,6 @@ h2 {
   padding: 22px 18px;
   border-top: 1px solid #c3e1f71c;
   border-bottom: 1px solid #c3e1f71c;
-  background: linear-gradient(110deg, #c6dbee04, #a7d9f50a);
 }
 .dimension-grid > div {
   padding: 0 16px;
@@ -1355,7 +1349,7 @@ footer a:hover {
     width: 100%;
     border-radius: 19px;
   }
-  .model-panel {
+  .model-workspace {
     width: 100%;
     border-radius: 19px;
     order: -1;
@@ -1548,5 +1542,383 @@ footer a:hover {
   }
   .file-label code {
     font-size: 10px;
+  }
+}
+
+/* The desktop workspace fills the viewport. Only expanded controls can scroll;
+   generation and download actions remain visible. */
+@media (min-width: 1000px) and (min-height: 600px) {
+  #root {
+    height: 100dvh;
+    display: grid;
+    grid-template-rows: 64px minmax(0, 1fr) 32px;
+  }
+  .site-header {
+    min-height: 0;
+    width: 100%;
+    padding: 0 32px;
+  }
+  main {
+    width: 100%;
+    min-height: 0;
+    margin: 0 auto;
+    padding: 0 32px;
+    display: grid;
+    grid-template-rows: 78px minmax(0, 1fr) 30px;
+  }
+  .page-intro {
+    margin: 0;
+    align-items: center;
+  }
+  .intro-eyebrow {
+    display: none;
+  }
+  h1 {
+    font-size: 34px;
+    letter-spacing: -1.5px;
+    margin: 0 0 5px;
+  }
+  h1 + p {
+    font-size: 12px;
+  }
+  .privacy-note {
+    font-size: 10px;
+  }
+  .workspace-grid {
+    min-height: 0;
+    grid-template-columns: 310px minmax(0, 1fr);
+    gap: clamp(24px, 3vw, 52px);
+    align-items: stretch;
+  }
+  .controls-panel {
+    min-height: 0;
+    display: grid;
+    grid-template-rows: 46px minmax(0, 1fr);
+  }
+  .panel-title {
+    padding: 10px 20px;
+  }
+  .controls-panel form {
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .control-fields {
+    min-height: 0;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: #71879755 transparent;
+    overscroll-behavior: contain;
+    padding-bottom: 2px;
+  }
+  .controls-panel .control-section {
+    padding: 10px 20px 0;
+  }
+  .section-label {
+    margin-bottom: 7px;
+  }
+  .section-label > span {
+    font-size: 9px;
+    padding: 2px 4px;
+  }
+  .section-label h3 {
+    font-size: 12px;
+  }
+  .profile-tabs {
+    margin-bottom: 9px;
+  }
+  .profile-tabs button {
+    min-height: 35px;
+    font-size: 15px;
+  }
+  .field > span {
+    margin-bottom: 5px;
+    font-size: 11px;
+  }
+  .input-shell {
+    min-height: 34px;
+  }
+  .input-shell input {
+    padding: 6px 0 6px 10px;
+    font-size: 13px;
+  }
+  .select-shell {
+    margin-bottom: 9px;
+  }
+  .select-shell select {
+    min-height: 34px;
+    padding: 7px 32px 7px 10px;
+  }
+  .select-shell > svg {
+    top: 10px;
+  }
+  .advanced-section {
+    margin: 12px 20px 0;
+    padding-top: 8px;
+  }
+  .advanced-toggle {
+    min-height: 24px;
+  }
+  .advanced-fields {
+    padding-top: 10px;
+  }
+  .advanced-fields > .field {
+    margin-bottom: 10px;
+  }
+  .field-hint {
+    margin-top: 8px;
+    line-height: 1.5;
+  }
+  .generate-area {
+    padding: 10px 20px 9px;
+    margin-top: auto;
+    flex-shrink: 0;
+  }
+  .generate-button {
+    min-height: 38px;
+    padding: 8px 12px;
+  }
+  .settings-actions {
+    margin-top: 6px;
+  }
+  .settings-actions > button {
+    font-size: 11px;
+    min-height: 24px;
+  }
+  .cancel-button {
+    padding: 6px;
+    font-size: 11px;
+  }
+  .error-message {
+    margin: 10px 20px 0;
+    padding: 9px;
+    font-size: 11px;
+  }
+  .model-workspace {
+    min-height: 0;
+    display: grid;
+    grid-template-rows: minmax(0, 1fr) 70px 126px;
+  }
+  .viewer {
+    height: auto;
+    min-height: 0;
+    background: none;
+  }
+  .viewer-top {
+    left: 6px;
+    right: 6px;
+    top: 9px;
+  }
+  .viewer-tools {
+    right: 4px;
+  }
+  .viewer-bottom {
+    left: 6px;
+    right: 8px;
+    bottom: 14px;
+  }
+  .view-tabs {
+    left: 6px;
+    bottom: 44px;
+  }
+  .dimension-grid {
+    padding: 13px 0;
+    border-top: 0;
+  }
+  .dimension-grid > div {
+    padding: 0 20px;
+  }
+  .dimension-grid > div:first-child {
+    padding-left: 6px;
+  }
+  .dimension-grid > div > span {
+    margin-bottom: 5px;
+    font-size: 11px;
+  }
+  .dimension-grid strong {
+    font-size: 22px;
+  }
+  .export-section {
+    padding: 12px 6px 0;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    column-gap: 22px;
+    align-content: center;
+  }
+  .export-heading {
+    gap: 10px;
+  }
+  .export-heading h2 {
+    font-size: 13px;
+  }
+  .export-heading p {
+    margin-top: 3px;
+    font-size: 10px;
+  }
+  .export-icon {
+    display: none;
+  }
+  .export-buttons {
+    margin: 0;
+    align-items: center;
+  }
+  .download-button {
+    min-height: 40px;
+    padding: 10px 18px;
+  }
+  .stl-button {
+    min-height: 40px;
+    padding: 0 15px;
+  }
+  .file-label {
+    grid-column: 1 / -1;
+    margin-top: 12px;
+  }
+  .workspace-notes {
+    padding: 5px 2px;
+    font-size: 9px;
+  }
+  .workspace-notes > button {
+    font-size: 9px;
+  }
+  footer {
+    width: 100%;
+    margin: 0 auto;
+    padding: 0 32px;
+    font-size: 9px;
+  }
+}
+@media (min-width: 1000px) and (min-height: 600px) and (max-height: 740px) {
+  #root {
+    grid-template-rows: 56px minmax(0, 1fr) 26px;
+  }
+  main {
+    grid-template-rows: 66px minmax(0, 1fr) 26px;
+  }
+  h1 {
+    font-size: 30px;
+    margin-bottom: 3px;
+  }
+  .controls-panel {
+    grid-template-rows: 42px minmax(0, 1fr);
+  }
+  .controls-panel .control-section {
+    padding-top: 7px;
+  }
+  .section-label {
+    margin-bottom: 5px;
+  }
+  .profile-tabs {
+    margin-bottom: 6px;
+  }
+  .profile-tabs button {
+    min-height: 31px;
+  }
+  .input-shell {
+    min-height: 31px;
+  }
+  .input-shell input {
+    padding-top: 5px;
+    padding-bottom: 5px;
+  }
+  .select-shell {
+    margin-bottom: 6px;
+  }
+  .select-shell select {
+    min-height: 31px;
+    padding-top: 5px;
+    padding-bottom: 5px;
+  }
+  .advanced-section {
+    margin-top: 8px;
+    padding-top: 6px;
+  }
+  .generate-area {
+    padding-top: 7px;
+    padding-bottom: 6px;
+  }
+  .model-workspace {
+    grid-template-rows: minmax(0, 1fr) 64px 100px;
+  }
+}
+@media (min-width: 1000px) and (max-width: 1200px) and (min-height: 600px) {
+  .export-section {
+    grid-template-columns: 1fr;
+    gap: 9px;
+    padding-top: 6px;
+  }
+  .export-heading h2 {
+    display: none;
+  }
+  .export-heading p {
+    margin: 0;
+  }
+  .file-label {
+    margin: 0;
+  }
+  .dimension-grid > div {
+    padding: 0 10px;
+  }
+  .dimension-grid > div > span {
+    font-size: 10px;
+  }
+}
+
+@media (min-width: 1000px) and (min-height: 850px) {
+  .controls-panel .control-section {
+    padding-top: 16px;
+  }
+  .section-label {
+    margin-bottom: 10px;
+  }
+  .profile-tabs {
+    margin-bottom: 12px;
+  }
+  .profile-tabs button {
+    min-height: 44px;
+  }
+  .field > span {
+    margin-bottom: 7px;
+    font-size: 12px;
+  }
+  .input-shell {
+    min-height: 40px;
+  }
+  .input-shell input {
+    padding-top: 9px;
+    padding-bottom: 9px;
+  }
+  .select-shell {
+    margin-bottom: 12px;
+  }
+  .select-shell select {
+    min-height: 40px;
+    padding-top: 10px;
+    padding-bottom: 10px;
+  }
+  .select-shell > svg {
+    top: 13px;
+  }
+  .advanced-section {
+    margin-top: 18px;
+    padding-top: 12px;
+  }
+  .generate-area {
+    padding-top: 14px;
+    padding-bottom: 12px;
+  }
+  .generate-button {
+    min-height: 44px;
+  }
+  .settings-actions {
+    margin-top: 9px;
+  }
+}
+@media (min-width: 1000px) and (min-height: 600px) and (max-height: 660px) {
+  #root {
+    grid-template-rows: 50px minmax(0, 1fr) 24px;
+  }
+  main {
+    grid-template-rows: 56px minmax(0, 1fr) 22px;
   }
 }
