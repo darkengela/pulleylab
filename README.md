@@ -1,5 +1,7 @@
 # PulleyLab
 
+[Open PulleyLab](https://pulleylab.vercel.app)
+
 Design HTD timing pulleys, inspect the actual 3D solid, and download STEP files for Fusion or STL files for printing. CAD runs entirely in your browser using OpenCascade WebAssembly. No account, API key, database, or CAD server is required.
 
 ## Features
