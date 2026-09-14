@@ -8,7 +8,7 @@ Design HTD timing pulleys, inspect the actual 3D solid, and download STEP files 
 
 - HTD 3M, 5M, and 8M; 12–240 teeth, with HTD 8M selected initially.
 - Belt width, total face clearance, bore, one/two/no flanges, flange chamfers, and an optional bottom hub.
-- Orbit, top/side views, edge and grid overlays, and three display finishes.
+- Orbit, top/side views, Solid, X-ray, Wireframe, and Clay display modes, edge and grid overlays, and three solid finishes.
 - STEP solid exports with analytic circular geometry and millimeter units; binary STL exports.
 - Local saved settings, import/export JSON presets, and shareable URLs containing the dimensions.
 - Downloads include every active build setting. For example:

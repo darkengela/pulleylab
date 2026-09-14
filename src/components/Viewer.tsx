@@ -5,6 +5,7 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { Box, Grid2X2, RotateCcw, Scan, ZoomIn, ZoomOut } from 'lucide-react';
 import type { ShapeMesh } from 'replicad';
 type View = 'perspective' | 'top' | 'side';
+type DisplayMode = 'solid' | 'xray' | 'wireframe' | 'clay';
 type Props = {
   mesh: ShapeMesh | null;
   busy: boolean;
@@ -20,11 +21,13 @@ export default function Viewer({ mesh, busy, stage, dirty, label }: Props) {
       wire: () => void;
       zoom: (n: number) => void;
       material: (c: number) => void;
+      mode: (mode: DisplayMode) => void;
     } | null>(null);
   const [failed, setFailed] = useState(false),
     [grid, setGrid] = useState(false),
     [wire, setWire] = useState(false),
     [view, setView] = useState<View>('perspective'),
+    [mode, setMode] = useState<DisplayMode>('solid'),
     [finish, setFinish] = useState(0xb8c7d0);
   useEffect(() => {
     if (!host.current || !mesh) return;
@@ -76,7 +79,28 @@ export default function Viewer({ mesh, busy, stage, dirty, label }: Props) {
         clearcoat: 0.22,
         clearcoatRoughness: 0.26,
       });
-      const solid = new THREE.Mesh(geometry, material);
+      const xrayMaterial = new THREE.MeshBasicMaterial({
+        color: 0x71d6ed,
+        transparent: true,
+        opacity: 0.13,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+        blending: THREE.AdditiveBlending,
+      });
+      const wireMaterial = new THREE.MeshBasicMaterial({
+        color: 0x9ed9e9,
+        wireframe: true,
+        transparent: true,
+        opacity: 0.25,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      });
+      const clayMaterial = new THREE.MeshStandardMaterial({
+        color: 0xc5cbd0,
+        metalness: 0,
+        roughness: 0.9,
+      });
+      const solid = new THREE.Mesh(geometry, material as THREE.Material);
       solid.visible = !!mesh;
       scene.add(solid);
       const wireGeo = new THREE.EdgesGeometry(geometry, 28),
@@ -88,6 +112,23 @@ export default function Viewer({ mesh, busy, stage, dirty, label }: Props) {
         edges = new THREE.LineSegments(wireGeo, wireMat);
       edges.visible = wire && !!mesh;
       scene.add(edges);
+      let currentMode = mode,
+        showEdges = wire;
+      const updateDisplay = () => {
+        solid.material =
+          currentMode === 'xray'
+            ? xrayMaterial
+            : currentMode === 'wireframe'
+              ? wireMaterial
+              : currentMode === 'clay'
+                ? clayMaterial
+                : material;
+        const seeThrough = currentMode === 'xray' || currentMode === 'wireframe';
+        edges.visible = showEdges || seeThrough;
+        wireMat.depthTest = !seeThrough;
+        wireMat.opacity = seeThrough ? 0.58 : 0.43;
+      };
+      updateDisplay();
       const ground = new THREE.GridHelper(size * 2.7, 24, 0x546474, 0x354150);
       ground.rotation.x = Math.PI / 2;
       ground.position.z = -size * 0.31;
@@ -133,11 +174,16 @@ export default function Viewer({ mesh, busy, stage, dirty, label }: Props) {
           ground.visible = !ground.visible;
         },
         wire: () => {
-          edges.visible = !edges.visible;
+          showEdges = !showEdges;
+          updateDisplay();
         },
         zoom: (factor) => {
           camera.position.sub(controls.target).multiplyScalar(factor).add(controls.target);
           controls.update();
+        },
+        mode: (nextMode) => {
+          currentMode = nextMode;
+          updateDisplay();
         },
         material: (c) => {
           material.color.setHex(c);
@@ -149,6 +195,9 @@ export default function Viewer({ mesh, busy, stage, dirty, label }: Props) {
         controls.dispose();
         geometry.dispose();
         material.dispose();
+        xrayMaterial.dispose();
+        wireMaterial.dispose();
+        clayMaterial.dispose();
         wireGeo.dispose();
         wireMat.dispose();
         ground.geometry.dispose();
@@ -175,7 +224,7 @@ export default function Viewer({ mesh, busy, stage, dirty, label }: Props) {
     api.current?.view(v);
   };
   return (
-    <div className="viewer">
+    <div className="viewer" data-display-mode={mode}>
       <div className="viewer-top">
         <div className="viewer-caption">
           <span className="eyebrow">YOUR PULLEY</span>
@@ -219,28 +268,47 @@ export default function Viewer({ mesh, busy, stage, dirty, label }: Props) {
           {stage}…
         </div>
       )}
-      <div className="view-tabs glass">
-        <button
-          className={view === 'perspective' ? 'active' : ''}
-          onClick={() => changeView('perspective')}
-          aria-pressed={view === 'perspective'}
-        >
-          3D
-        </button>
-        <button
-          className={view === 'top' ? 'active' : ''}
-          onClick={() => changeView('top')}
-          aria-pressed={view === 'top'}
-        >
-          Top
-        </button>
-        <button
-          className={view === 'side' ? 'active' : ''}
-          onClick={() => changeView('side')}
-          aria-pressed={view === 'side'}
-        >
-          Side
-        </button>
+      <div className="viewer-view-controls">
+        <div className="view-tabs glass">
+          <button
+            className={view === 'perspective' ? 'active' : ''}
+            onClick={() => changeView('perspective')}
+            aria-pressed={view === 'perspective'}
+          >
+            3D
+          </button>
+          <button
+            className={view === 'top' ? 'active' : ''}
+            onClick={() => changeView('top')}
+            aria-pressed={view === 'top'}
+          >
+            Top
+          </button>
+          <button
+            className={view === 'side' ? 'active' : ''}
+            onClick={() => changeView('side')}
+            aria-pressed={view === 'side'}
+          >
+            Side
+          </button>
+        </div>
+        <label className="display-mode-control glass">
+          <span>Display</span>
+          <select
+            aria-label="Display style"
+            value={mode}
+            onChange={(event) => {
+              const nextMode = event.target.value as DisplayMode;
+              setMode(nextMode);
+              api.current?.mode(nextMode);
+            }}
+          >
+            <option value="solid">Solid</option>
+            <option value="xray">X-ray</option>
+            <option value="wireframe">Wireframe</option>
+            <option value="clay">Clay</option>
+          </select>
+        </label>
       </div>
       <div className="viewer-tools glass">
         <button title="Zoom in" aria-label="Zoom in" onClick={() => api.current?.zoom(0.85)}>
@@ -263,8 +331,9 @@ export default function Viewer({ mesh, busy, stage, dirty, label }: Props) {
           <Grid2X2 size={17} />
         </button>
         <button
-          className={wire ? 'active' : ''}
-          aria-pressed={wire}
+          className={wire || mode === 'xray' || mode === 'wireframe' ? 'active' : ''}
+          aria-pressed={wire || mode === 'xray' || mode === 'wireframe'}
+          disabled={mode === 'xray' || mode === 'wireframe'}
           title="Show edges"
           aria-label="Show edges"
           onClick={() => {
@@ -287,7 +356,7 @@ export default function Viewer({ mesh, busy, stage, dirty, label }: Props) {
         <span>
           Drag to orbit <span className="divider-dot">·</span> Scroll to zoom
         </span>
-        <div className="finish-picker" aria-label="Preview material">
+        <div className="finish-picker" aria-label="Preview material" hidden={mode !== 'solid'}>
           <span>Finish</span>
           {[
             { name: 'Silver', color: 0xb8c7d0 },

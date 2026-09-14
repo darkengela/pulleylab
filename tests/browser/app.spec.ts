@@ -14,6 +14,12 @@ test('build, inspect, download, change dimensions, and reload settings', async (
     'true',
   );
   await page.getByRole('button', { name: 'Show edges', exact: true }).click();
+  for (const mode of ['xray', 'wireframe', 'clay', 'solid']) {
+    await page.getByRole('combobox', { name: 'Display style' }).selectOption(mode);
+    await expect(page.locator('.viewer')).toHaveAttribute('data-display-mode', mode);
+    await expect(step).toBeEnabled();
+  }
+
   const downloading = page.waitForEvent('download');
   await step.click();
   const download = await downloading;
@@ -36,13 +42,11 @@ test('build, inspect, download, change dimensions, and reload settings', async (
   const saving = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   expect((await saving).suggestedFilename()).toBe(filename(changed, 'json'));
-  await page
-    .locator('input[type=file]')
-    .setInputFiles({
-      name: 'preset.json',
-      mimeType: 'application/json',
-      buffer: Buffer.from(JSON.stringify({ ...DEFAULTS, teeth: 30, flanges: 'none' })),
-    });
+  await page.locator('input[type=file]').setInputFiles({
+    name: 'preset.json',
+    mimeType: 'application/json',
+    buffer: Buffer.from(JSON.stringify({ ...DEFAULTS, teeth: 30, flanges: 'none' })),
+  });
   await expect(page.getByRole('spinbutton', { name: 'Tooth count', exact: true })).toHaveValue(
     '30',
   );
