@@ -84,6 +84,7 @@ textarea:focus-visible {
   position: absolute;
   inset: -12%;
   background: url('/particle-background.png') 60% 50% / cover no-repeat;
+  filter: blur(48px);
   opacity: 0.68;
   transform: scale(1.04);
 }
