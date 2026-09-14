@@ -1,0 +1,37 @@
+PulleyLab — Joseph Kaisner
+Source: https://github.com/darkengela/pulleylab
+
+Application source is licensed under GNU GPL version 3 or later.
+Full license: /licenses/GPL-3.0.txt
+
+HTD tooth construction and profile dimensions are adapted from FreeCAD Gears:
+https://github.com/looooo/freecad.gears
+https://github.com/looooo/freecad.gears/blob/master/freecad/gears/timinggear.py
+Copyright FreeCAD Gears contributors, GPL-3.0-or-later.
+PulleyLab ports the circular-arc construction to TypeScript and OpenCascade.
+
+CAD libraries:
+Replicad 1.1.0 — Steve Genoud, MIT.
+https://github.com/sgenoud/replicad
+replicad-opencascadejs 1.1.0 — LGPL-2.1-only.
+Build recipes and source: https://github.com/sgenoud/replicad/tree/main/packages/replicad-opencascadejs
+OpenCascade.js: https://github.com/donalffons/opencascade.js
+Open CASCADE Technology: https://github.com/Open-Cascade-SAS/OCCT
+The CAD kernel is shipped as a separate WebAssembly asset. Its corresponding
+source and build instructions are available from the repositories above.
+You may replace/rebuild it and rebuild PulleyLab from its public source.
+
+Other runtime dependencies:
+React and React DOM — Meta Platforms, Inc. and affiliates, MIT.
+Three.js — Three.js authors, MIT.
+Lucide — Lucide contributors, ISC, with Feather-derived icons under MIT.
+Manrope — Mikhail Sharanda and contributors, SIL Open Font License 1.1.
+Copies of the package licenses are available in /licenses/.
+Exact dependency versions and source package links are in package-lock.json.
+
+particle-background.png is an existing public artwork from Joseph Kaisner's
+personal site, used with his authorization. Copyright Joseph Kaisner.
+This decorative asset is excluded from the GPL code license.
+
+This application is independent of Autodesk and the paid Autodesk Marketplace
+plugin. No code or assets from that plugin are included.
