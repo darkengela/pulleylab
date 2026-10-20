@@ -17,6 +17,7 @@ import {
   X,
 } from 'lucide-react';
 import type { FormEvent, ReactNode } from 'react';
+import { Analytics } from '@vercel/analytics/react';
 import Viewer from './components/Viewer';
 import RatioPlanner from './components/RatioPlanner';
 import PairWorkspace from './components/PairWorkspace';
@@ -739,6 +740,7 @@ export default function App() {
           />
         </Modal>
       )}
+      <Analytics />
     </>
   );
 }
