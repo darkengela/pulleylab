@@ -6,7 +6,7 @@ import Viewer from './Viewer';
 import type { Appearance } from '../appearance';
 import type { PulleyResult } from '../cad/model';
 import type { PulleyPair } from '../cad/ratio';
-import { buildData, dimensions, filename } from '../cad/parameters';
+import { boreLabel, buildData, dimensions, filename } from '../cad/parameters';
 export function pairFilename(pair: PulleyPair) {
   return (
     filename(pair.drive)
@@ -15,8 +15,8 @@ export function pairFilename(pair: PulleyPair) {
         `${pair.drive.teeth}T-Drive_${pair.driven.teeth}T-Driven_${Number(pair.ratio.toFixed(4))}to1`,
       )
       .replace(
-        `${pair.drive.bore}mmBore`,
-        `${pair.drive.bore}mmDriveBore_${pair.driven.bore}mmDrivenBore`,
+        boreLabel(pair.drive),
+        `${boreLabel(pair.drive, 'Drive')}_${boreLabel(pair.driven, 'Driven')}`,
       ) + '_PAIR.zip'
   );
 }

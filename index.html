@@ -6,12 +6,12 @@
     <meta name="theme-color" content="#0a0a0a" />
     <meta
       name="description"
-      content="Design an HTD timing pulley, preview the solid, and download a STEP or STL file."
+      content="HTD pulley generator. Design an HTD timing pulley, preview the solid, and download a STEP or STL file."
     />
-    <meta property="og:title" content="PulleyLab" />
+    <meta property="og:title" content="HTD pulley generator — PulleyLab" />
     <meta
       property="og:description"
-      content="Design an HTD timing pulley, preview the solid, and download a STEP or STL file."
+      content="HTD pulley generator. Design an HTD timing pulley, preview the solid, and download a STEP or STL file."
     />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://pulleylab.vercel.app/" />
@@ -25,10 +25,10 @@
       content="PulleyLab designing an HTD 8M timing pulley, with dimensions, 3D preview, and STEP download."
     />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="PulleyLab" />
+    <meta name="twitter:title" content="HTD pulley generator — PulleyLab" />
     <meta
       name="twitter:description"
-      content="Design an HTD timing pulley, preview the solid, and download a STEP or STL file."
+      content="HTD pulley generator. Design an HTD timing pulley, preview the solid, and download a STEP or STL file."
     />
     <meta name="twitter:image" content="https://pulleylab.vercel.app/pulleylab-social.png" />
     <meta
@@ -36,11 +36,70 @@
       content="PulleyLab designing an HTD 8M timing pulley, with dimensions, 3D preview, and STEP download."
     />
     <link rel="canonical" href="https://pulleylab.vercel.app/" />
-    <title>PulleyLab</title>
+    <title>HTD pulley generator — PulleyLab</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "name": "PulleyLab",
+        "url": "https://pulleylab.vercel.app",
+        "applicationCategory": "DesignApplication",
+        "operatingSystem": "Web",
+        "description": "HTD pulley generator. Design an HTD timing pulley, preview the solid, and download a STEP or STL file."
+      }
+    </script>
+    <style>
+      body {
+        margin: 0;
+        background: #0a0a0a;
+        color: #f2f2f2;
+        font-family: 'Avenir Next', 'Segoe UI', system-ui, sans-serif;
+      }
+      .crawl-intro {
+        max-width: 720px;
+        margin: 0 auto;
+        padding: 48px 24px;
+      }
+      .crawl-intro h1 {
+        margin: 0 0 8px;
+        font-size: 22px;
+        font-weight: 550;
+        letter-spacing: -0.3px;
+      }
+      .crawl-intro p {
+        margin: 0;
+        color: #b5b5b5;
+        font-size: 15px;
+        line-height: 1.5;
+      }
+      .crawl-intro nav {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px 16px;
+        margin-top: 16px;
+        font-size: 14px;
+      }
+      .crawl-intro a {
+        color: #d8d8d8;
+      }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <header class="crawl-intro">
+        <h1>HTD pulley generator</h1>
+        <p>
+          Design an HTD 3M, 5M, or 8M timing pulley, preview the solid, and download STEP or STL.
+          It runs in the browser.
+        </p>
+        <nav aria-label="Guides">
+          <a href="/htd-profiles">HTD profiles</a>
+          <a href="/d-shaft">D-shaft bore</a>
+          <a href="/download">STEP and STL</a>
+        </nav>
+      </header>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

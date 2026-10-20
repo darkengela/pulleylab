@@ -55,6 +55,9 @@ export default function RatioPlanner({
         <p className="field-hint">
           Uses HTD {parameters.profile}, your {parameters.belt_width || '—'} mm belt width, drive
           bore, flanges, and hub above.
+          {parameters.d_shaft
+            ? ' The drive pulley keeps the D-shaft bore. The driven pulley stays a circular bore.'
+            : ''}
         </p>
         <div className="input-row">
           {field('target', 'Target ratio', ': 1')}

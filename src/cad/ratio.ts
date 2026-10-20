@@ -72,6 +72,10 @@ export function findPairs(
       throw Error('Use whole-tooth ranges from 12 to 240, with minimum no greater than maximum.');
   if (q.drivenBore < 0 || q.drivenBore > 1000)
     throw Error('Driven bore must be between 0 and 1000 mm.');
+  if (p.d_shaft && !(p.d_flat > 0 && p.d_flat < p.d_diameter))
+    throw Error(
+      `D-shaft flat must be greater than 0 mm and less than the diameter (${p.d_diameter} mm). The flat is the distance from the flat face to the opposite point on the circle.`,
+    );
   for (const v of [q.driveMaxOD, q.drivenMaxOD, q.beltLength, q.centerMin, q.centerMax])
     if (v < 0 || v > 20000) throw Error('Optional size limits must be between 0 and 20,000 mm.');
   if (q.centerMax > 0 && q.centerMin > q.centerMax)
@@ -81,19 +85,21 @@ export function findPairs(
   const pitch = PROFILES[p.profile].pitch;
   if (q.beltLength && Math.abs(q.beltLength / pitch - Math.round(q.beltLength / pitch)) > 1e-6)
     throw Error(`Belt pitch length must be a multiple of ${pitch} mm for HTD ${p.profile}.`);
-  const candidates = (min: number, max: number, bore: number, maxOD: number) => {
+  const candidates = (min: number, max: number, bore: number, maxOD: number, dShaft: boolean) => {
     const out: Parameters[] = [];
     for (let teeth = min; teeth <= max; teeth++)
       try {
-        const candidate = validate({ ...p, teeth, bore });
+        const candidate = validate({ ...p, teeth, bore, d_shaft: dShaft });
         if (!maxOD || dimensions(candidate).flange <= maxOD + 1e-8) out.push(candidate);
       } catch {
         /* Filter dimensions that cannot form a valid pulley. */
       }
     return out;
   };
-  const drives = candidates(q.driveMin, q.driveMax, p.bore, q.driveMaxOD),
-    drivens = candidates(q.drivenMin, q.drivenMax, q.drivenBore, q.drivenMaxOD),
+  // Drive keeps the D-shaft settings from the form. Driven stays a circular bore;
+  // the planner already has its own driven bore and no second D-shaft control.
+  const drives = candidates(q.driveMin, q.driveMax, p.bore, q.driveMaxOD, p.d_shaft),
+    drivens = candidates(q.drivenMin, q.drivenMax, q.drivenBore, q.drivenMaxOD, false),
     pairs: PulleyPair[] = [];
   for (const drive of drives)
     for (const driven of drivens) {

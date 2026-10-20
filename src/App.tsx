@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
   ArrowDownToLine,
   ArrowUpRight,
@@ -36,7 +37,7 @@ import {
 } from './cad/parameters';
 import type { Parameters, Profile } from './cad/parameters';
 import type { PulleyResult } from './cad/model';
-type NumberKey = Exclude<keyof Parameters, 'profile' | 'flanges'>;
+type NumberKey = Exclude<keyof Parameters, 'profile' | 'flanges' | 'd_shaft'>;
 function saveFile(blob: Blob, name: string) {
   const url = URL.createObjectURL(blob),
     a = document.createElement('a');
@@ -135,6 +136,19 @@ export default function App() {
     d = dimensions(p);
   const set = (key: keyof Parameters, value: number | string) => {
     setP((old) => ({ ...old, [key]: value }));
+    setError('');
+  };
+  const setDShaft = (on: boolean) => {
+    setP((old) => {
+      if (!on) return { ...old, d_shaft: false };
+      const d_diameter =
+        Number.isFinite(old.bore) && old.bore > 0 ? old.bore : old.d_diameter || DEFAULTS.d_diameter;
+      const d_flat =
+        old.d_flat > 0 && old.d_flat < d_diameter
+          ? old.d_flat
+          : Number((d_diameter > 1 ? d_diameter - 1 : d_diameter / 2).toFixed(4));
+      return { ...old, d_shaft: true, d_diameter, d_flat };
+    });
     setError('');
   };
   function cancel() {
@@ -361,6 +375,13 @@ export default function App() {
       </header>
       <form id="ratio-requirements" hidden onSubmit={(e) => e.preventDefault()} />
       <main id="workspace">
+        <div className="page-intro">
+          <h1>HTD pulley generator</h1>
+          <p>
+            Design an HTD 3M, 5M, or 8M timing pulley, preview the solid, and download STEP or STL.
+            It runs in the browser.
+          </p>
+        </div>
         <div className="workspace-grid">
           <aside className="controls-panel glass">
             <div className="panel-title">
@@ -402,8 +423,41 @@ export default function App() {
                   </div>
                   <div className="input-row">
                     {field('teeth', 'Tooth count', { min: 12, max: 240, step: 1, unit: false })}
-                    {field('bore', 'Bore diameter', { hint: 'Set to zero for a solid center.' })}
+                    {p.d_shaft
+                      ? field('d_diameter', 'D diameter', {
+                          hint: 'Full round diameter of the D-shaft, in millimeters.',
+                        })
+                      : field('bore', 'Bore diameter', { hint: 'Set to zero for a solid center.' })}
                   </div>
+                  <div className="profile-tabs bore-mode" role="group" aria-label="Bore shape">
+                    <button
+                      type="button"
+                      className={p.d_shaft ? '' : 'selected'}
+                      aria-pressed={!p.d_shaft}
+                      onClick={() => setDShaft(false)}
+                    >
+                      Round bore
+                    </button>
+                    <button
+                      type="button"
+                      className={p.d_shaft ? 'selected' : ''}
+                      aria-pressed={p.d_shaft}
+                      onClick={() => setDShaft(true)}
+                    >
+                      D-shaft
+                    </button>
+                  </div>
+                  {p.d_shaft && (
+                    <>
+                      {field('d_flat', 'Flat', {
+                        hint: 'Distance from the flat face to the opposite point on the circle.',
+                      })}
+                      <p className="field-hint">
+                        Greater than 0 and less than the diameter. An 8 mm D-shaft with a 7 mm flat
+                        is a full 8 mm circle with one flat. The flat faces +X.
+                      </p>
+                    </>
+                  )}
                 </section>
                 <section className="control-section">
                   <div className="section-label">
@@ -641,6 +695,11 @@ export default function App() {
             Joseph Kaisner <ArrowUpRight size={12} />
           </a>
         </span>
+        <nav className="guide-links" aria-label="Guides">
+          <Link to="/htd-profiles">HTD profiles</Link>
+          <Link to="/d-shaft">D-shaft bore</Link>
+          <Link to="/download">STEP and STL</Link>
+        </nav>
         <a href="/NOTICE.txt" target="_blank" rel="noreferrer">
           Source & licenses
         </a>
@@ -660,7 +719,8 @@ export default function App() {
                 <h3>Define your pulley.</h3>
                 <p>
                   Choose the HTD pitch printed on your belt, then set the tooth count, belt width,
-                  and bore. Extra space adds clearance across the whole face.
+                  and bore. For a D-shaft, switch the bore to D-shaft and set the diameter and the
+                  flat. Extra space adds clearance across the whole face.
                 </p>
               </div>
             </li>

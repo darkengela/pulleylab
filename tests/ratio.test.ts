@@ -76,6 +76,29 @@ describe('drive ratio planning', () => {
     expect(findPairs(DEFAULTS, { ...q, centerMax: 360 }).total).toBe(0);
     expect(findPairs(DEFAULTS, { ...q, beltLength: 200 }).total).toBe(0);
   });
+  it('keeps a D-shaft on the drive pulley and a circular bore on the driven pulley', () => {
+    const found = findPairs(
+      { ...DEFAULTS, d_shaft: true, d_diameter: 8, d_flat: 7 },
+      {
+        ...DEFAULT_RATIO,
+        driveMin: 24,
+        driveMax: 24,
+        drivenMin: 72,
+        drivenMax: 72,
+        tolerance: 0,
+        drivenBore: 20,
+      },
+    );
+    expect(found.total).toBe(1);
+    expect(found.pairs[0].drive).toMatchObject({ d_shaft: true, d_diameter: 8, d_flat: 7, bore: 8 });
+    expect(found.pairs[0].driven).toMatchObject({ d_shaft: false, bore: 20 });
+    expect(() =>
+      findPairs(
+        { ...DEFAULTS, d_shaft: true, d_diameter: 8, d_flat: 8 },
+        { ...DEFAULT_RATIO, driveMin: 24, driveMax: 24, drivenMin: 24, drivenMax: 24 },
+      ),
+    ).toThrow(/less than the diameter/);
+  });
   it('rejects invalid ranges, fractional belt teeth, and unsupported spacing requests', () => {
     for (const q of [
       { target: 0 },

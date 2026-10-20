@@ -12,6 +12,16 @@ export type Parameters = {
   belt_width: number;
   clearance: number;
   bore: number;
+  /** When true, the bore is a D-shaft profile instead of a circle. */
+  d_shaft: boolean;
+  /** Full round diameter of the D-shaft, in mm. Used only when `d_shaft` is true. */
+  d_diameter: number;
+  /**
+   * Across-flat distance of the D-shaft, in mm: from the flat face to the
+   * opposite point on the circle. Must be greater than 0 and less than
+   * `d_diameter`. Used only when `d_shaft` is true.
+   */
+  d_flat: number;
   flanges: 'none' | 'bottom' | 'both';
   flange_thickness: number;
   flange_overhang: number;
@@ -25,6 +35,9 @@ export const DEFAULTS: Parameters = {
   belt_width: 20,
   clearance: 1,
   bore: 8,
+  d_shaft: false,
+  d_diameter: 8,
+  d_flat: 7,
   flanges: 'both',
   flange_thickness: 1.5,
   flange_overhang: 2,
@@ -32,6 +45,10 @@ export const DEFAULTS: Parameters = {
   hub_diameter: 0,
   hub_length: 0,
 };
+/** Circular bore diameter, or the D-shaft's full round diameter when that mode is on. */
+export function holeDiameter(p: Parameters) {
+  return p.d_shaft ? p.d_diameter : p.bore;
+}
 export function dimensions(p: Parameters) {
   const s = PROFILES[p.profile],
     pitch = (p.teeth * s.pitch) / Math.PI,
@@ -51,6 +68,8 @@ export const LIMITS = {
   belt_width: [0.5, 200],
   clearance: [0, 10],
   bore: [0, 1000],
+  d_diameter: [0, 1000],
+  d_flat: [0, 1000],
   flange_thickness: [0.2, 15],
   flange_overhang: [0.2, 20],
   chamfer: [0, 5],
@@ -69,9 +88,15 @@ export function validate(raw: unknown): Parameters {
     throw Error('Choose a valid flange arrangement.');
   for (const [key, [lo, hi]] of Object.entries(LIMITS)) {
     const value = p[key as keyof typeof LIMITS];
+    const label =
+      key === 'd_diameter'
+        ? 'D-shaft diameter'
+        : key === 'd_flat'
+          ? 'D-shaft flat'
+          : key.replaceAll('_', ' ');
     if (typeof value !== 'number' || !Number.isFinite(value) || value < lo || value > hi)
       throw Error(
-        `${key.replaceAll('_', ' ')} must be between ${lo} and ${hi} mm${key === 'teeth' ? ' (whole teeth)' : ''}.`.replace(
+        `${label} must be between ${lo} and ${hi} mm${key === 'teeth' ? ' (whole teeth)' : ''}.`.replace(
           '240 mm',
           '240',
         ),
@@ -80,10 +105,16 @@ export function validate(raw: unknown): Parameters {
       throw Error('Use no more than four decimal places for dimensions.');
   }
   if (!Number.isInteger(p.teeth)) throw Error('Number of teeth must be a whole number.');
-  const d = dimensions(p);
-  if (p.bore > d.root - 2)
+  if (typeof p.d_shaft !== 'boolean') throw Error('Choose a circular bore or a D-shaft bore.');
+  if (p.d_shaft && !(p.d_flat > 0 && p.d_flat < p.d_diameter))
     throw Error(
-      `The bore is too large for this pulley. Use ${Math.max(0, d.root - 2).toFixed(2)} mm or less to leave material below the teeth.`,
+      `D-shaft flat must be greater than 0 mm and less than the diameter (${p.d_diameter} mm). The flat is the distance from the flat face to the opposite point on the circle.`,
+    );
+  const hole = holeDiameter(p);
+  const d = dimensions(p);
+  if (hole > d.root - 2)
+    throw Error(
+      `The ${p.d_shaft ? 'D-shaft diameter' : 'bore'} is too large for this pulley. Use ${Math.max(0, d.root - 2).toFixed(2)} mm or less to leave material below the teeth.`,
     );
   if (
     p.flanges !== 'none' &&
@@ -92,13 +123,21 @@ export function validate(raw: unknown): Parameters {
     throw Error(
       'Reduce the chamfer to less than half the flange thickness and less than the overhang.',
     );
-  if (p.hub_length > 0 && (p.hub_diameter < p.bore + 2 || p.hub_diameter > d.root))
+  if (p.hub_length > 0 && (p.hub_diameter < hole + 2 || p.hub_diameter > d.root))
     throw Error(
-      `For this bore, hub diameter must be between ${(p.bore + 2).toFixed(2)} and ${d.root.toFixed(2)} mm.`,
+      `For this ${p.d_shaft ? 'D-shaft' : 'bore'}, hub diameter must be between ${(hole + 2).toFixed(2)} and ${d.root.toFixed(2)} mm.`,
     );
   return p;
 }
 const num = (n: number) => Number(n.toFixed(4)).toString();
+/** Bore token for filenames. A D-shaft uses diameter and flat; a round bore uses `bore`. */
+export function boreLabel(p: Parameters, role?: 'Drive' | 'Driven') {
+  if (p.d_shaft) {
+    const base = `${num(p.d_diameter)}mmD${num(p.d_flat)}mmFlat`;
+    return role ? `${base}${role}` : base;
+  }
+  return role ? `${num(p.bore)}mm${role}Bore` : `${num(p.bore)}mmBore`;
+}
 export function filename(p: Parameters, extension?: 'step' | 'stl' | 'json') {
   const parts = [
     'pulleylabs',
@@ -106,7 +145,7 @@ export function filename(p: Parameters, extension?: 'step' | 'stl' | 'json') {
     p.profile,
     `${p.teeth}Teeth`,
     `${num(p.belt_width)}mmBelt`,
-    `${num(p.bore)}mmBore`,
+    boreLabel(p),
     `${num(p.clearance)}mmClearance`,
   ];
   if (p.flanges === 'none') parts.push('NoFlanges');

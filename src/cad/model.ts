@@ -14,7 +14,7 @@ import {
   exportSTEP,
 } from 'replicad';
 import type { Edge, Shape3D, Deletable } from 'replicad';
-import { PROFILES, validate, dimensions, filename } from './parameters';
+import { PROFILES, validate, dimensions, filename, holeDiameter } from './parameters';
 type Point2 = [number, number];
 const rotate = ([x, y]: Point2, a: number): Point2 => [
   x * Math.cos(a) - y * Math.sin(a),
@@ -92,10 +92,21 @@ export function createPulley(raw: unknown) {
           keep(makeCylinder(p.hub_diameter / 2, p.hub_length, [0, 0, bottom - p.hub_length])),
         ),
       );
-    if (p.bore > 0)
-      body = keep(
-        body.cut(keep(makeCylinder(p.bore / 2, d.total + 2, [0, 0, bottom - p.hub_length - 1]))),
-      );
+    const hole = holeDiameter(p);
+    if (hole > 0) {
+      const radius = hole / 2,
+        z = bottom - p.hub_length - 1,
+        height = d.total + 2;
+      // Bore axis is Z. A D-shaft keeps one flat facing +X: the flat plane is at
+      // x = flat - radius, and the opposite point on the circle is at x = -radius.
+      let tool: Shape3D = keep(makeCylinder(radius, height, [0, 0, z]));
+      if (p.d_shaft) {
+        const profile = tool.cutPlane('YZ', p.d_flat - radius, 'negative');
+        if (!profile) throw Error('The D-shaft flat did not cut a valid bore.');
+        tool = keep(profile);
+      }
+      body = keep(body.cut(tool));
+    }
     const solids = body.solids;
     solids.forEach(keep);
     const oc = getOC();

@@ -202,6 +202,80 @@ textarea:focus-visible {
     inset 0 1px 0 #ffffff10,
     0 5px 20px #00000044;
 }
+.page-intro {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 16px;
+  margin: 0 0 14px;
+}
+.page-intro h1 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 550;
+  letter-spacing: -0.3px;
+}
+.page-intro p {
+  margin: 0;
+  max-width: 68ch;
+  color: #9a9a9a;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.guide {
+  max-width: 680px;
+  margin: 0 auto;
+  padding: 40px 24px 72px;
+}
+.guide-brand {
+  display: inline-flex;
+  margin-bottom: 28px;
+  font-size: 22px;
+  letter-spacing: -0.8px;
+}
+.guide-brand span {
+  font-weight: 750;
+}
+.guide h1 {
+  margin: 0 0 12px;
+  font-size: 28px;
+  font-weight: 550;
+  letter-spacing: -0.4px;
+}
+.guide h2 {
+  margin: 28px 0 8px;
+  font-size: 18px;
+  font-weight: 550;
+}
+.guide p,
+.guide li {
+  color: #c4c4c4;
+  font-size: 16px;
+  line-height: 1.6;
+}
+.guide ul {
+  padding-left: 1.2em;
+}
+.guide a {
+  color: #d8d8d8;
+}
+.guide a:hover {
+  color: #ffffff;
+}
+.guide-back {
+  display: inline-block;
+  margin-top: 28px;
+  font-size: 14px;
+}
+.guide-footer {
+  margin-top: 36px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  font-size: 14px;
+}
 main {
   max-width: 1456px;
   margin: auto;
@@ -315,6 +389,14 @@ h2 {
 }
 .profile-tabs .selected > span {
   color: #bdbdbd;
+}
+.profile-tabs.bore-mode {
+  grid-template-columns: 1fr 1fr;
+  margin: 12px 0 4px;
+}
+.profile-tabs.bore-mode button {
+  min-height: 36px;
+  font-size: 13px;
 }
 .input-row {
   display: grid;
@@ -826,9 +908,16 @@ footer {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 12px 20px;
+  flex-wrap: wrap;
   color: #848484;
   font-size: 10px;
   border-top: 1px solid #b7b7b708;
+}
+.guide-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
 }
 footer > span:first-child,
 footer a {
@@ -1451,10 +1540,14 @@ footer a:hover {
 /* The desktop workspace fills the viewport. Only expanded controls can scroll;
    generation and download actions remain visible. */
 @media (min-width: 1000px) and (min-height: 600px) {
-  #root {
+  #root:has(.site-header) {
     height: 100dvh;
     display: grid;
     grid-template-rows: 64px minmax(0, 1fr) 32px;
+  }
+  footer,
+  .guide-links {
+    flex-wrap: nowrap;
   }
   .site-header {
     min-height: 0;
@@ -1467,7 +1560,7 @@ footer a:hover {
     margin: 0 auto;
     padding: 0 32px;
     display: grid;
-    grid-template-rows: minmax(0, 1fr) 30px;
+    grid-template-rows: auto minmax(0, 1fr) 30px;
   }
   .workspace-grid {
     min-height: 0;
@@ -1515,6 +1608,17 @@ footer a:hover {
   .profile-tabs button {
     min-height: 35px;
     font-size: 15px;
+  }
+  .profile-tabs.bore-mode button {
+    min-height: 30px;
+    font-size: 12px;
+  }
+  .page-intro {
+    margin-bottom: 8px;
+  }
+  .page-intro h1,
+  .page-intro p {
+    font-size: 12px;
   }
   .field > span {
     margin-bottom: 5px;
@@ -1674,11 +1778,11 @@ footer a:hover {
   }
 }
 @media (min-width: 1000px) and (min-height: 600px) and (max-height: 740px) {
-  #root {
+  #root:has(.site-header) {
     grid-template-rows: 56px minmax(0, 1fr) 26px;
   }
   main {
-    grid-template-rows: minmax(0, 1fr) 26px;
+    grid-template-rows: auto minmax(0, 1fr) 26px;
   }
   .controls-panel {
     grid-template-rows: 42px minmax(0, 1fr);
@@ -1796,11 +1900,11 @@ footer a:hover {
   }
 }
 @media (min-width: 1000px) and (min-height: 600px) and (max-height: 660px) {
-  #root {
+  #root:has(.site-header) {
     grid-template-rows: 50px minmax(0, 1fr) 24px;
   }
   main {
-    grid-template-rows: minmax(0, 1fr) 22px;
+    grid-template-rows: auto minmax(0, 1fr) 22px;
   }
 }
 
