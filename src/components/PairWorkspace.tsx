@@ -188,7 +188,6 @@ export default function PairWorkspace({
       <div className="export-section">
         <div className="export-heading">
           <div>
-            <h2>One build. Both pulleys.</h2>
             <p>
               {error ||
                 (dirty

@@ -1,5 +1,5 @@
 export const FINISHES = {
-  silver: { name: 'Silver', color: 0xb8c7d0, metalness: 0.92, roughness: 0.27, clearcoat: 0.22 },
+  silver: { name: 'Silver', color: 0xc8c8c8, metalness: 0.92, roughness: 0.27, clearcoat: 0.22 },
   graphite: {
     name: 'Graphite',
     color: 0x454d58,

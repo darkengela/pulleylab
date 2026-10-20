@@ -64,13 +64,13 @@ export default function Viewer({
         room = new RoomEnvironment(),
         env = pmrem.fromScene(room, 0.04);
       scene.environment = env.texture;
-      const key = new THREE.DirectionalLight(0xe1f7ff, 4);
+      const key = new THREE.DirectionalLight(0xffffff, 3.2);
       key.position.set(-60, -100, 140);
       scene.add(key);
-      const rim = new THREE.DirectionalLight(0xf8b886, 2.8);
+      const rim = new THREE.DirectionalLight(0xd4d4d4, 1.6);
       rim.position.set(80, 70, 40);
       scene.add(rim);
-      scene.add(new THREE.AmbientLight(0xe6f4ff, 0.6));
+      scene.add(new THREE.AmbientLight(0xffffff, 0.45));
       const geometry = new THREE.BufferGeometry();
       let size = 70,
         wideModel = false;
@@ -95,7 +95,7 @@ export default function Viewer({
         clearcoatRoughness: 0.26,
       });
       const xrayMaterial = new THREE.MeshBasicMaterial({
-        color: 0x71d6ed,
+        color: 0xd8d8d8,
         transparent: true,
         opacity: 0.13,
         depthWrite: false,
@@ -103,7 +103,7 @@ export default function Viewer({
         blending: THREE.AdditiveBlending,
       });
       const wireMaterial = new THREE.MeshBasicMaterial({
-        color: 0x9ed9e9,
+        color: 0xe6e6e6,
         wireframe: true,
         transparent: true,
         opacity: 0.25,
@@ -111,7 +111,7 @@ export default function Viewer({
         side: THREE.DoubleSide,
       });
       const clayMaterial = new THREE.MeshStandardMaterial({
-        color: 0xc5cbd0,
+        color: 0xc8c8c8,
         metalness: 0,
         roughness: 0.9,
       });
@@ -120,7 +120,7 @@ export default function Viewer({
       scene.add(solid);
       const wireGeo = new THREE.EdgesGeometry(geometry, 28),
         wireMat = new THREE.LineBasicMaterial({
-          color: 0xaddcf2,
+          color: 0xffffff,
           transparent: true,
           opacity: 0.43,
         }),
@@ -144,7 +144,7 @@ export default function Viewer({
         wireMat.opacity = seeThrough ? 0.58 : 0.43;
       };
       updateDisplay();
-      const ground = new THREE.GridHelper(size * 2.7, 24, 0x546474, 0x354150);
+      const ground = new THREE.GridHelper(size * 2.7, 24, 0x6a6a6a, 0x3a3a3a);
       ground.rotation.x = Math.PI / 2;
       ground.position.z = -size * 0.31;
       ground.visible = grid;
@@ -253,7 +253,6 @@ export default function Viewer({
     <div className="viewer" data-display-mode={mode} data-finish={finish}>
       <div className="viewer-top">
         <div className="viewer-caption">
-          <span className="eyebrow">YOUR PULLEY</span>
           <h2>{label}</h2>
           {selection}
         </div>
@@ -279,14 +278,14 @@ export default function Viewer({
           <div className={busy ? 'loading-ring' : 'empty-ring'}>
             <Box size={28} strokeWidth={1} />
           </div>
-          <p>{failed ? '3D preview unavailable' : busy ? stage : 'Your next part starts here.'}</p>
-          <span>
+          <p>
             {failed
-              ? 'You can still generate and download the STEP file.'
+              ? '3D preview unavailable'
               : busy
-                ? 'Preparing precise geometry on your device.'
+                ? stage
                 : 'Choose dimensions, then generate your pulley.'}
-          </span>
+          </p>
+          {failed && <span>You can still generate and download the STEP file.</span>}
         </div>
       )}
       {busy && mesh && (

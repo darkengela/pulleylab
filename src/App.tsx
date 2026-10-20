@@ -361,25 +361,6 @@ export default function App() {
       </header>
       <form id="ratio-requirements" hidden onSubmit={(e) => e.preventDefault()} />
       <main id="workspace">
-        <section className="page-intro">
-          <div>
-            <div className="eyebrow intro-eyebrow">
-              <span /> A LITTLE LESS CAD. A LITTLE MORE MAKING.
-            </div>
-            <h1>
-              Make it <span>fit.</span>
-            </h1>
-            <p>Your dimensions. Your pulley. Ready for whatever you’re building.</p>
-          </div>
-          <div className="privacy-note">
-            <ShieldCheck size={17} />
-            <span>
-              Generated on your device.
-              <br />
-              <strong>No account needed.</strong>
-            </span>
-          </div>
-        </section>
         <div className="workspace-grid">
           <aside className="controls-panel glass">
             <div className="panel-title">
@@ -605,18 +586,15 @@ export default function App() {
                     <span className="export-icon">
                       <ArrowDownToLine size={21} strokeWidth={1.4} />
                     </span>
-                    <div>
-                      <h2>From your screen to your workbench.</h2>
-                      <p>
-                        {busy
-                          ? 'Building the solid on your device…'
-                          : dirty && result
-                            ? 'Your settings changed. Generate to update the model.'
-                            : result
-                              ? `One solid · Millimeters · Generated in ${result.seconds.toFixed(1)}s`
-                              : 'A solid STEP file, ready to open in Fusion.'}
-                      </p>
-                    </div>
+                    <p>
+                      {busy
+                        ? 'Building the solid…'
+                        : dirty && result
+                          ? 'Settings changed. Generate to update the model.'
+                          : result
+                            ? `Generated in ${result.seconds.toFixed(1)}s`
+                            : 'Generate a pulley, then download STEP or STL.'}
+                    </p>
                   </div>
                   <div className="export-buttons">
                     <button
@@ -663,7 +641,6 @@ export default function App() {
             Joseph Kaisner <ArrowUpRight size={12} />
           </a>
         </span>
-        <span>For people who make things.</span>
         <a href="/NOTICE.txt" target="_blank" rel="noreferrer">
           Source & licenses
         </a>
@@ -675,7 +652,7 @@ export default function App() {
         </div>
       )}
       {modal === 'help' && (
-        <Modal title="A part you can actually use." onClose={() => setModal(null)}>
+        <Modal title="How it works" onClose={() => setModal(null)}>
           <ol className="help-steps">
             <li>
               <span>01</span>
