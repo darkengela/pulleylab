@@ -1,11 +1,47 @@
 import { DEFAULT_APPEARANCE, validateAppearance } from '../appearance';
 import type { Appearance } from '../appearance';
+
+/**
+ * Tooth specs, millimeters.
+ *
+ * HTD 3M/5M/8M match FreeCAD Gears `timinggear.py` (offset 0: one valley arc
+ * and a tip fillet). HTD 14M and 20M use that same construction with the
+ * pulley-groove table published for circular-arc HTD pulleys (groove depth,
+ * clearance-circle radius, and the low end of the tip-radius range):
+ * https://wellpowerbelt.com/timing-belt-pulleys/
+ * Radial pitch-line offset is half of (pitch diameter − outside diameter)
+ * from the Pfeifer HTD PD/OD charts: 2.794 mm (0.110 in) for 14M and
+ * 4.318 mm (0.170 in) for 20M.
+ *
+ * GT2/GT3/GT5 are the FreeCAD Gears modified-curvilinear profile (side arc
+ * offset ≠ 0), not renamed HTD teeth. Pitch-line offset `u` matches SDP-SI
+ * D265 Table 4 (0.254, 0.381, 0.5715 mm). Groove depth matches the published
+ * G2M/G3M/G5M tooth heights 0.75, 1.14, and 1.93 mm; SDP-SI nominal GT2
+ * groove depths are 0.76, 1.14, and 1.93 mm.
+ * https://github.com/looooo/freecad.gears/blob/master/freecad/gears/timinggear.py
+ */
 export const PROFILES = {
-  '3M': { pitch: 3, offset: 0.381, depth: 1.21, radius: 0.89, fillet: 0.26 },
-  '5M': { pitch: 5, offset: 0.5715, depth: 2.16, radius: 1.6, fillet: 0.48 },
-  '8M': { pitch: 8, offset: 0.686, depth: 3.45, radius: 2.46, fillet: 0.7 },
+  '3M': { family: 'HTD', pitch: 3, offset: 0.381, depth: 1.21, radius: 0.89, fillet: 0.26, side: 0.89, sideOffset: 0 },
+  '5M': { family: 'HTD', pitch: 5, offset: 0.5715, depth: 2.16, radius: 1.6, fillet: 0.48, side: 1.6, sideOffset: 0 },
+  '8M': { family: 'HTD', pitch: 8, offset: 0.686, depth: 3.45, radius: 2.46, fillet: 0.7, side: 2.46, sideOffset: 0 },
+  '14M': { family: 'HTD', pitch: 14, offset: 1.397, depth: 6.2, radius: 4.65, fillet: 1.36, side: 4.65, sideOffset: 0 },
+  '20M': { family: 'HTD', pitch: 20, offset: 2.159, depth: 8.6, radius: 6.84, fillet: 1.95, side: 6.84, sideOffset: 0 },
+  GT2: { family: 'GT', pitch: 2, offset: 0.254, depth: 0.75, radius: 0.555, fillet: 0.15, side: 1, sideOffset: 0.4 },
+  GT3: { family: 'GT', pitch: 3, offset: 0.381, depth: 1.14, radius: 0.85, fillet: 0.25, side: 1.52, sideOffset: 0.61 },
+  GT5: { family: 'GT', pitch: 5, offset: 0.5715, depth: 1.93, radius: 1.44, fillet: 0.416, side: 2.57, sideOffset: 1.03 },
 } as const;
 export type Profile = keyof typeof PROFILES;
+export type BeltFamily = (typeof PROFILES)[Profile]['family'];
+/** ISO 724 coarse metric threads. Major diameter is the nominal size. */
+export const SCREWS = {
+  M2: { major: 2, pitch: 0.4 },
+  'M2.5': { major: 2.5, pitch: 0.45 },
+  M3: { major: 3, pitch: 0.5 },
+  M4: { major: 4, pitch: 0.7 },
+  M5: { major: 5, pitch: 0.8 },
+  M6: { major: 6, pitch: 1 },
+} as const;
+export type ScrewSize = keyof typeof SCREWS;
 export type Parameters = {
   profile: Profile;
   teeth: number;
@@ -28,6 +64,17 @@ export type Parameters = {
   chamfer: number;
   hub_diameter: number;
   hub_length: number;
+  /** Web lightening between the bore and the tooth roots. Off leaves a solid web. */
+  lightening: 'off' | 'shell' | 'fins';
+  /** Minimum wall left at the bore and under the tooth roots, in mm. */
+  wall: number;
+  /** Bottom collar with a radial set screw. Off leaves the hub unchanged. */
+  clamp: boolean;
+  /** How far the clamp collar extends from the pulley, in mm. */
+  clamp_height: number;
+  /** Radial wall thickness of the clamp collar, in mm. */
+  clamp_thickness: number;
+  clamp_screw: ScrewSize;
 };
 export const DEFAULTS: Parameters = {
   profile: '8M',
@@ -44,10 +91,40 @@ export const DEFAULTS: Parameters = {
   chamfer: 0.4,
   hub_diameter: 0,
   hub_length: 0,
+  lightening: 'off',
+  wall: 2,
+  clamp: false,
+  clamp_height: 8,
+  clamp_thickness: 4,
+  clamp_screw: 'M3',
 };
 /** Circular bore diameter, or the D-shaft's full round diameter when that mode is on. */
 export function holeDiameter(p: Parameters) {
   return p.d_shaft ? p.d_diameter : p.bore;
+}
+export function profileLabel(id: Profile) {
+  const spec = PROFILES[id];
+  return spec.family === 'HTD' ? `HTD ${id}` : id;
+}
+/**
+ * One bottom boss. A clamp uses the hub side: the collar is the longer of the
+ * hub length and the clamp height, and the wider of the hub diameter and the
+ * bore plus two clamp walls. Clamp off keeps the hub as entered.
+ */
+export function extension(p: Parameters) {
+  if (!p.clamp) return { length: p.hub_length, diameter: p.hub_diameter };
+  const hole = holeDiameter(p);
+  return {
+    length: Math.max(p.hub_length, p.clamp_height),
+    diameter: Math.max(p.hub_diameter, hole + 2 * p.clamp_thickness),
+  };
+}
+/** ISO 68-1 basic metric profile: H = (√3/2) P, depth 5H/8, crest flat P/8, root flat P/4. */
+export function threadProfile(size: ScrewSize) {
+  const { major, pitch } = SCREWS[size];
+  const H = (Math.sqrt(3) / 2) * pitch;
+  const radial = (5 / 8) * H;
+  return { major, pitch, radial, minor: major - 2 * radial };
 }
 export function dimensions(p: Parameters) {
   const s = PROFILES[p.profile],
@@ -59,9 +136,35 @@ export function dimensions(p: Parameters) {
     outside,
     root: outside - 2 * s.depth,
     face: p.belt_width + p.clearance,
-    total: p.belt_width + p.clearance + count * p.flange_thickness + p.hub_length,
+    total: p.belt_width + p.clearance + count * p.flange_thickness + extension(p).length,
     flange: outside + (count ? 2 * p.flange_overhang : 0),
   };
+}
+/** Empty when lightening is off or the web can be cut. Otherwise a short status and no cut. */
+export function lighteningStatus(p: Parameters) {
+  if (p.lightening === 'off') return '';
+  const d = dimensions(p);
+  const inner = holeDiameter(p) / 2 + p.wall;
+  const outer = d.root / 2 - p.wall;
+  if (!(outer > inner + 0.2) || d.face <= p.wall + 0.2)
+    return 'Not enough material for this minimum wall.';
+  if (p.lightening === 'fins' && (4 * p.wall) / Math.max(inner, 0.2) >= Math.PI * 2 - 0.15)
+    return 'Not enough material for this minimum wall.';
+  return '';
+}
+/** Empty when the clamp is off or the screw fits inside the collar. */
+export function clampError(p: Parameters) {
+  if (!p.clamp) return '';
+  const hole = holeDiameter(p);
+  if (!(hole > 0)) return 'A clamp needs a bore so the screw can reach the shaft.';
+  const screw = SCREWS[p.clamp_screw];
+  const wall = (extension(p).diameter - hole) / 2;
+  const needHeight = screw.major + 2 * screw.pitch;
+  if (p.clamp_height < needHeight - 1e-9 || wall < screw.major - 1e-9)
+    return `${p.clamp_screw} needs a clamp wall of at least ${screw.major} mm and a clamp height of at least ${needHeight.toFixed(2)} mm so the thread stays inside the collar.`;
+  if (screw.major >= hole - 0.2)
+    return `${p.clamp_screw} is too large for a ${hole.toFixed(2)} mm bore. Use a smaller screw or a larger bore.`;
+  return '';
 }
 export const LIMITS = {
   teeth: [12, 240],
@@ -75,6 +178,9 @@ export const LIMITS = {
   chamfer: [0, 5],
   hub_diameter: [0, 1000],
   hub_length: [0, 100],
+  wall: [0.2, 40],
+  clamp_height: [0.2, 80],
+  clamp_thickness: [0.2, 40],
 } as const;
 export function validate(raw: unknown): Parameters {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw))
@@ -83,9 +189,14 @@ export function validate(raw: unknown): Parameters {
     throw Error('This file includes unsupported settings.');
   const p = { ...DEFAULTS, ...raw } as Parameters;
   if (typeof p.profile !== 'string' || !Object.hasOwn(PROFILES, p.profile))
-    throw Error('Choose an HTD 3M, 5M, or 8M profile.');
+    throw Error('Choose an HTD 3M, 5M, 8M, 14M, or 20M profile, or GT2, GT3, or GT5.');
   if (!['none', 'bottom', 'both'].includes(p.flanges))
     throw Error('Choose a valid flange arrangement.');
+  if (!['off', 'shell', 'fins'].includes(p.lightening))
+    throw Error('Choose solid, shell, or fin lightening.');
+  if (typeof p.clamp !== 'boolean') throw Error('Choose whether to add a clamp.');
+  if (typeof p.clamp_screw !== 'string' || !Object.hasOwn(SCREWS, p.clamp_screw))
+    throw Error('Choose an M2, M2.5, M3, M4, M5, or M6 clamp screw.');
   for (const [key, [lo, hi]] of Object.entries(LIMITS)) {
     const value = p[key as keyof typeof LIMITS];
     const label =
@@ -93,7 +204,13 @@ export function validate(raw: unknown): Parameters {
         ? 'D-shaft diameter'
         : key === 'd_flat'
           ? 'D-shaft flat'
-          : key.replaceAll('_', ' ');
+          : key === 'wall'
+            ? 'Minimum wall'
+            : key === 'clamp_height'
+              ? 'Clamp height'
+              : key === 'clamp_thickness'
+                ? 'Clamp wall'
+                : key.replaceAll('_', ' ');
     if (typeof value !== 'number' || !Number.isFinite(value) || value < lo || value > hi)
       throw Error(
         `${label} must be between ${lo} and ${hi} mm${key === 'teeth' ? ' (whole teeth)' : ''}.`.replace(
@@ -127,6 +244,8 @@ export function validate(raw: unknown): Parameters {
     throw Error(
       `For this ${p.d_shaft ? 'D-shaft' : 'bore'}, hub diameter must be between ${(hole + 2).toFixed(2)} and ${d.root.toFixed(2)} mm.`,
     );
+  const clamp = clampError(p);
+  if (clamp) throw Error(clamp);
   return p;
 }
 const num = (n: number) => Number(n.toFixed(4)).toString();
@@ -138,10 +257,10 @@ export function boreLabel(p: Parameters, role?: 'Drive' | 'Driven') {
   }
   return role ? `${num(p.bore)}mm${role}Bore` : `${num(p.bore)}mmBore`;
 }
-export function filename(p: Parameters, extension?: 'step' | 'stl' | 'json') {
+export function filename(p: Parameters, extensionName?: 'step' | 'stl' | 'json') {
   const parts = [
     'pulleylabs',
-    'HTD',
+    PROFILES[p.profile].family,
     p.profile,
     `${p.teeth}Teeth`,
     `${num(p.belt_width)}mmBelt`,
@@ -157,7 +276,10 @@ export function filename(p: Parameters, extension?: 'step' | 'stl' | 'json') {
       `${num(p.chamfer)}mmChamfer`,
     );
   parts.push(p.hub_length > 0 ? `${num(p.hub_diameter)}x${num(p.hub_length)}mmHub` : 'NoHub');
-  return parts.join('_') + (extension ? '.' + extension : '');
+  if (p.lightening !== 'off')
+    parts.push(`${p.lightening === 'shell' ? 'Shell' : 'Fins'}${num(p.wall)}mmWall`);
+  if (p.clamp) parts.push(`${num(p.clamp_height)}x${num(p.clamp_thickness)}mmClamp${p.clamp_screw}`);
+  return parts.join('_') + (extensionName ? '.' + extensionName : '');
 }
 
 export type SavedBuild = {

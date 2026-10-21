@@ -6,7 +6,7 @@ import Viewer from './Viewer';
 import type { Appearance } from '../appearance';
 import type { PulleyResult } from '../cad/model';
 import type { PulleyPair } from '../cad/ratio';
-import { boreLabel, buildData, dimensions, filename } from '../cad/parameters';
+import { boreLabel, buildData, dimensions, filename, profileLabel } from '../cad/parameters';
 export function pairFilename(pair: PulleyPair) {
   return (
     filename(pair.drive)
@@ -148,7 +148,7 @@ export default function PairWorkspace({
         busy={busy}
         stage={stage}
         dirty={dirty}
-        label={`HTD ${pair.drive.profile} · ${pair.drive.teeth}T drive / ${pair.driven.teeth}T driven`}
+        label={`${profileLabel(pair.drive.profile)} · ${pair.drive.teeth}T drive / ${pair.driven.teeth}T driven`}
         selection={
           <div className="pair-view-tabs" aria-label="Pair preview">
             {(['both', 'drive', 'driven'] as const).map((value) => (

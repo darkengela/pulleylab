@@ -1,4 +1,4 @@
-import { dimensions, PROFILES, validate } from './parameters';
+import { dimensions, PROFILES, profileLabel, validate } from './parameters';
 import type { Parameters } from './parameters';
 export type RatioRequirements = {
   target: number;
@@ -84,7 +84,7 @@ export function findPairs(
     throw Error('Enter belt pitch length to filter shaft spacing.');
   const pitch = PROFILES[p.profile].pitch;
   if (q.beltLength && Math.abs(q.beltLength / pitch - Math.round(q.beltLength / pitch)) > 1e-6)
-    throw Error(`Belt pitch length must be a multiple of ${pitch} mm for HTD ${p.profile}.`);
+    throw Error(`Belt pitch length must be a multiple of ${pitch} mm for ${profileLabel(p.profile)}.`);
   const candidates = (min: number, max: number, bore: number, maxOD: number, dShaft: boolean) => {
     const out: Parameters[] = [];
     for (let teeth = min; teeth <= max; teeth++)

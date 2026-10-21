@@ -3,11 +3,11 @@ import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 const PAGES = {
   profiles: {
-    title: 'HTD 3M, 5M, and 8M profiles — HTD pulley generator',
+    title: 'HTD and GT pulley profiles — PulleyLab',
     description:
-      'What HTD 3M, 5M, and 8M pitch means on an HTD timing pulley, and which profiles the HTD pulley generator builds.',
+      'HTD 3M, 5M, 8M, 14M, and 20M, plus GT2, GT3, and GT5. HTD and GT belts are not interchangeable.',
     canonical: 'https://pulleylab.vercel.app/htd-profiles',
-    heading: 'HTD 3M, 5M, and 8M pulley profiles',
+    heading: 'HTD and GT pulley profiles',
   },
   shaft: {
     title: 'D-shaft bore — HTD pulley generator',
@@ -82,24 +82,24 @@ export function ProfilesGuide() {
       ]}
     >
       <p>
-        PulleyLab is an HTD pulley generator for three HTD timing pulley pitches. Pitch is the
-        distance from one tooth to the next, measured along the pitch line.
+        PulleyLab builds HTD and GT timing pulleys. Pitch is the distance from one tooth to the
+        next, measured along the pitch line. Match the profile printed on the belt.
       </p>
       <ul>
-        <li>HTD 3M has a 3 mm pitch.</li>
-        <li>HTD 5M has a 5 mm pitch.</li>
-        <li>HTD 8M has an 8 mm pitch.</li>
+        <li>HTD 3M, 5M, 8M, 14M, and 20M have 3, 5, 8, 14, and 20 mm pitch.</li>
+        <li>GT2, GT3, and GT5 have 2, 3, and 5 mm pitch.</li>
       </ul>
       <h2>What the generator uses</h2>
       <p>
-        Match the pitch printed on the belt. Tooth count can be any whole number from 12 to 240.
-        Pitch diameter is tooth count times pitch, divided by π. The outside diameter is smaller
-        than that pitch diameter by the profile offset used for that pitch.
+        Tooth count can be any whole number from 12 to 240. Pitch diameter is tooth count times
+        pitch, divided by π. The outside diameter is smaller than that pitch diameter by the
+        profile offset used for that pitch.
       </p>
       <p>
-        The tooth shape is a nominal HTD circular-arc profile. GT belts are a different profile,
-        and HTD 14M and 20M are not included. Belt fit on a printed or machined part has not been
-        verified here, so check a short test piece before the final part.
+        HTD teeth are a nominal circular-arc profile. GT2, GT3, and GT5 are a modified curvilinear
+        profile. An HTD belt and a GT belt are not interchangeable, even when the pitch number
+        matches. Belt fit on a printed or machined part has not been verified here, so check a
+        short test piece before the final part.
       </p>
     </Frame>
   );

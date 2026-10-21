@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { ArrowUpRight } from 'lucide-react';
 import { DEFAULT_RATIO, findPairs } from '../cad/ratio';
 import type { PulleyPair, RatioRequirements } from '../cad/ratio';
-import { dimensions } from '../cad/parameters';
+import { dimensions, profileLabel } from '../cad/parameters';
 import type { Parameters } from '../cad/parameters';
 export default function RatioPlanner({
   parameters,
@@ -53,7 +53,7 @@ export default function RatioPlanner({
       </summary>
       <div className="ratio-content">
         <p className="field-hint">
-          Uses HTD {parameters.profile}, your {parameters.belt_width || '—'} mm belt width, drive
+          Uses {profileLabel(parameters.profile)}, your {parameters.belt_width || '—'} mm belt width, drive
           bore, flanges, and hub above.
           {parameters.d_shaft
             ? ' The drive pulley keeps the D-shaft bore. The driven pulley stays a circular bore.'

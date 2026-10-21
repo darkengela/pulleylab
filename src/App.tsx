@@ -27,8 +27,12 @@ import type { Appearance } from './appearance';
 import {
   DEFAULTS,
   PROFILES,
+  SCREWS,
+  clampError,
   dimensions,
   filename,
+  lighteningStatus,
+  profileLabel,
   readInitial,
   parseBuild,
   buildData,
@@ -37,7 +41,10 @@ import {
 } from './cad/parameters';
 import type { Parameters, Profile } from './cad/parameters';
 import type { PulleyResult } from './cad/model';
-type NumberKey = Exclude<keyof Parameters, 'profile' | 'flanges' | 'd_shaft'>;
+type NumberKey = Exclude<
+  keyof Parameters,
+  'profile' | 'flanges' | 'd_shaft' | 'lightening' | 'clamp' | 'clamp_screw'
+>;
 function saveFile(blob: Blob, name: string) {
   const url = URL.createObjectURL(blob),
     a = document.createElement('a');
@@ -67,6 +74,70 @@ function Logo() {
         pulley<span>lab</span>
       </span>
     </span>
+  );
+}
+function mm(n: number) {
+  return Number.isFinite(n) ? String(Number(n.toFixed(4))) : '—';
+}
+function BoreDiagram({
+  dShaft,
+  diameter,
+  flat,
+}: {
+  dShaft: boolean;
+  diameter: number;
+  flat: number;
+}) {
+  const showD = dShaft && diameter > 0 && flat > 0 && flat < diameter;
+  const cx = 46;
+  const cy = 46;
+  const R = 26;
+  const left = cx - R;
+  const right = cx + R;
+  const flatX = showD ? left + (flat / diameter) * 2 * R : right;
+  const dx = flatX - cx;
+  const dy = Math.sqrt(Math.max(0, R * R - dx * dx));
+  const label = showD
+    ? `D-shaft, diameter ${mm(diameter)} millimeters, flat ${mm(flat)} millimeters`
+    : `Circular bore, diameter ${mm(diameter)} millimeters`;
+  return (
+    <svg className="bore-diagram" viewBox="0 0 168 100" role="img" aria-label={label}>
+      {showD ? (
+        <path
+          d={`M ${flatX} ${cy - dy} A ${R} ${R} 0 1 0 ${flatX} ${cy + dy} L ${flatX} ${cy - dy}`}
+        />
+      ) : (
+        <circle cx={cx} cy={cy} r={diameter > 0 ? R : 3} />
+      )}
+      <line className="dim" x1={left} y1={8} x2={right} y2={8} />
+      <line className="dim" x1={left} y1={5} x2={left} y2={12} />
+      <line className="dim" x1={right} y1={5} x2={right} y2={12} />
+      <line className="dim" x1={left} y1={12} x2={left} y2={cy - R} />
+      <line className="dim" x1={right} y1={12} x2={right} y2={showD ? cy - dy : cy - R} />
+      {showD && (
+        <>
+          <line className="dim" x1={left} y1={92} x2={flatX} y2={92} />
+          <line className="dim" x1={left} y1={88} x2={left} y2={96} />
+          <line className="dim" x1={flatX} y1={88} x2={flatX} y2={96} />
+        </>
+      )}
+      <text x="102" y={showD ? 38 : 46}>
+        Diameter
+      </text>
+      <text x="102" y={showD ? 52 : 62}>
+        {mm(diameter)} mm
+      </text>
+      {showD && (
+        <>
+          <text x="102" y="72">
+            Flat
+          </text>
+          <text x="102" y="86">
+            {mm(flat)} mm
+          </text>
+        </>
+      )}
+    </svg>
   );
 }
 function Modal({
@@ -133,7 +204,9 @@ export default function App() {
     run = useRef(0);
   const dirty = !result || JSON.stringify(p) !== JSON.stringify(result.parameters),
     canDownload = !!result && !dirty && !busy,
-    d = dimensions(p);
+    d = dimensions(p),
+    webStatus = lighteningStatus(p),
+    collarStatus = clampError(p);
   const set = (key: keyof Parameters, value: number | string) => {
     setP((old) => ({ ...old, [key]: value }));
     setError('');
@@ -359,27 +432,43 @@ export default function App() {
         <a href={location.pathname} className="brand-link" aria-label="PulleyLab home">
           <Logo />
         </a>
-        <nav className="nav-pill glass" aria-label="Main navigation">
+        <nav className="toolbar-nav" aria-label="Main navigation">
           <a href="#workspace" className="nav-active">
             Generator
           </a>
-          <button onClick={() => setModal('help')}>How it works</button>
-          <a href="https://www.josephkaisner.com" target="_blank" rel="noreferrer">
-            By Joseph <ArrowUpRight size={13} />
-          </a>
+          <button type="button" onClick={() => setModal('help')}>
+            How it works
+          </button>
+          <Link to="/htd-profiles">Profiles</Link>
+          <Link to="/d-shaft">D-shaft</Link>
+          <Link to="/download">Download</Link>
         </nav>
-        <button className="button glass share-button" onClick={share}>
-          <Link2 size={15} />
-          <span>Share build</span>
-        </button>
+        <div className="toolbar-actions">
+          <button className="button glass share-button" type="button" onClick={share}>
+            <Link2 size={15} />
+            <span>Share build</span>
+          </button>
+          <button type="button" onClick={saveSettings}>
+            <Download size={13} />
+            Save
+          </button>
+          <button type="button" onClick={() => file.current?.click()}>
+            <FolderOpen size={13} />
+            Load
+          </button>
+          <button type="button" onClick={reset}>
+            <RotateCcw size={13} />
+            Reset
+          </button>
+        </div>
       </header>
       <form id="ratio-requirements" hidden onSubmit={(e) => e.preventDefault()} />
       <main id="workspace">
         <div className="page-intro">
-          <h1>HTD pulley generator</h1>
+          <h1>Timing pulley generator</h1>
           <p>
-            Design an HTD 3M, 5M, or 8M timing pulley, preview the solid, and download STEP or STL.
-            It runs in the browser.
+            Design an HTD or GT timing pulley, preview the solid, and download STEP or STL. It runs
+            in the browser.
           </p>
         </div>
         <div className="workspace-grid">
@@ -407,56 +496,77 @@ export default function App() {
                     <span>01</span>
                     <h3>Tooth profile</h3>
                   </div>
-                  <div className="profile-tabs" role="group" aria-label="HTD belt pitch">
-                    {Object.keys(PROFILES).map((profile) => (
-                      <button
-                        type="button"
-                        key={profile}
-                        className={p.profile === profile ? 'selected' : ''}
-                        aria-pressed={p.profile === profile}
-                        onClick={() => set('profile', profile as Profile)}
-                      >
-                        <span>HTD</span>
-                        {profile}
-                      </button>
-                    ))}
-                  </div>
-                  <div className="input-row">
-                    {field('teeth', 'Tooth count', { min: 12, max: 240, step: 1, unit: false })}
-                    {p.d_shaft
-                      ? field('d_diameter', 'D diameter', {
-                          hint: 'Full round diameter of the D-shaft, in millimeters.',
-                        })
-                      : field('bore', 'Bore diameter', { hint: 'Set to zero for a solid center.' })}
-                  </div>
-                  <div className="profile-tabs bore-mode" role="group" aria-label="Bore shape">
-                    <button
-                      type="button"
-                      className={p.d_shaft ? '' : 'selected'}
-                      aria-pressed={!p.d_shaft}
-                      onClick={() => setDShaft(false)}
+                  <div className="select-shell">
+                    <select
+                      aria-label="Belt profile"
+                      value={p.profile}
+                      onChange={(e) => set('profile', e.target.value as Profile)}
                     >
-                      Round bore
-                    </button>
-                    <button
-                      type="button"
-                      className={p.d_shaft ? 'selected' : ''}
-                      aria-pressed={p.d_shaft}
-                      onClick={() => setDShaft(true)}
-                    >
-                      D-shaft
-                    </button>
+                      <optgroup label="HTD">
+                        {(Object.keys(PROFILES) as Profile[])
+                          .filter((id) => PROFILES[id].family === 'HTD')
+                          .map((id) => (
+                            <option key={id} value={id}>
+                              HTD {id}
+                            </option>
+                          ))}
+                      </optgroup>
+                      <optgroup label="GT">
+                        {(Object.keys(PROFILES) as Profile[])
+                          .filter((id) => PROFILES[id].family === 'GT')
+                          .map((id) => (
+                            <option key={id} value={id}>
+                              {id} · {PROFILES[id].pitch} mm
+                            </option>
+                          ))}
+                      </optgroup>
+                    </select>
+                    <ChevronDown size={15} />
+                  </div>
+                  <div className="bore-block">
+                    <div>
+                      <div className="input-row">
+                        {field('teeth', 'Tooth count', { min: 12, max: 240, step: 1, unit: false })}
+                        {p.d_shaft
+                          ? field('d_diameter', 'D diameter', {
+                              hint: 'Full round diameter of the D-shaft, in millimeters.',
+                            })
+                          : field('bore', 'Bore diameter', { hint: 'Set to zero for a solid center.' })}
+                      </div>
+                      <div className="profile-tabs bore-mode" role="group" aria-label="Bore shape">
+                        <button
+                          type="button"
+                          className={p.d_shaft ? '' : 'selected'}
+                          aria-pressed={!p.d_shaft}
+                          onClick={() => setDShaft(false)}
+                        >
+                          Round bore
+                        </button>
+                        <button
+                          type="button"
+                          className={p.d_shaft ? 'selected' : ''}
+                          aria-pressed={p.d_shaft}
+                          onClick={() => setDShaft(true)}
+                        >
+                          D-shaft
+                        </button>
+                      </div>
+                      {p.d_shaft &&
+                        field('d_flat', 'Flat', {
+                          hint: 'Distance from the flat face to the opposite point on the circle.',
+                        })}
+                    </div>
+                    <BoreDiagram
+                      dShaft={p.d_shaft}
+                      diameter={p.d_shaft ? p.d_diameter : p.bore}
+                      flat={p.d_flat}
+                    />
                   </div>
                   {p.d_shaft && (
-                    <>
-                      {field('d_flat', 'Flat', {
-                        hint: 'Distance from the flat face to the opposite point on the circle.',
-                      })}
-                      <p className="field-hint">
-                        Greater than 0 and less than the diameter. An 8 mm D-shaft with a 7 mm flat
-                        is a full 8 mm circle with one flat. The flat faces +X.
-                      </p>
-                    </>
+                    <p className="field-hint">
+                      Greater than 0 and less than the diameter. An 8 mm D-shaft with a 7 mm flat is
+                      a full 8 mm circle with one flat. The flat faces +X.
+                    </p>
                   )}
                 </section>
                 <section className="control-section">
@@ -511,7 +621,7 @@ export default function App() {
                     >
                       <span>
                         <SlidersHorizontal size={15} />
-                        Chamfer & hub
+                        Hub, lightening & clamp
                       </span>
                       <ChevronRight size={15} className={advanced ? 'expanded' : ''} />
                     </button>
@@ -525,6 +635,83 @@ export default function App() {
                         <p className="field-hint">
                           A hub extends from the bottom. Leave length at 0 to omit it.
                         </p>
+                        <div className="select-shell">
+                          <select
+                            aria-label="Lightening"
+                            value={p.lightening}
+                            onChange={(e) => set('lightening', e.target.value)}
+                          >
+                            <option value="off">Solid web</option>
+                            <option value="shell">Shell</option>
+                            <option value="fins">Fins</option>
+                          </select>
+                          <ChevronDown size={15} />
+                        </div>
+                        {p.lightening !== 'off' && (
+                          <>
+                            {field('wall', 'Minimum wall', {
+                              min: 0.2,
+                              max: 40,
+                              hint: 'Material left at the bore and under the tooth roots.',
+                            })}
+                            <p className="field-hint">
+                              {webStatus ||
+                                (p.lightening === 'shell'
+                                  ? 'An annular pocket from the faces, leaving this wall at the bore and under the teeth.'
+                                  : 'Four radial ribs. The pockets between them stop at this wall.')}
+                            </p>
+                          </>
+                        )}
+                        <div className="profile-tabs bore-mode" role="group" aria-label="Clamp">
+                          <button
+                            type="button"
+                            className={p.clamp ? '' : 'selected'}
+                            aria-pressed={!p.clamp}
+                            onClick={() => {
+                              setP((old) => ({ ...old, clamp: false }));
+                              setError('');
+                            }}
+                          >
+                            No clamp
+                          </button>
+                          <button
+                            type="button"
+                            className={p.clamp ? 'selected' : ''}
+                            aria-pressed={p.clamp}
+                            onClick={() => {
+                              setP((old) => ({ ...old, clamp: true }));
+                              setError('');
+                            }}
+                          >
+                            Clamp
+                          </button>
+                        </div>
+                        {p.clamp && (
+                          <>
+                            <div className="input-row">
+                              {field('clamp_height', 'Clamp height', { min: 0.2, max: 80 })}
+                              {field('clamp_thickness', 'Clamp wall', { min: 0.2, max: 40 })}
+                            </div>
+                            <div className="select-shell">
+                              <select
+                                aria-label="Clamp screw"
+                                value={p.clamp_screw}
+                                onChange={(e) => set('clamp_screw', e.target.value)}
+                              >
+                                {(Object.keys(SCREWS) as (keyof typeof SCREWS)[]).map((size) => (
+                                  <option key={size} value={size}>
+                                    {size} · {SCREWS[size].major} mm × {SCREWS[size].pitch} mm
+                                  </option>
+                                ))}
+                              </select>
+                              <ChevronDown size={15} />
+                            </div>
+                            <p className="field-hint">
+                              {collarStatus ||
+                                'A collar on the hub side with one radial metric thread. The screw clamps on the shaft. If a hub is also set, one collar uses the larger diameter and the longer length.'}
+                            </p>
+                          </>
+                        )}
                       </div>
                     )}
                   </section>
@@ -570,20 +757,6 @@ export default function App() {
                     Cancel generation
                   </button>
                 )}
-                <div className="settings-actions">
-                  <button type="button" onClick={saveSettings}>
-                    <Download size={13} />
-                    Save
-                  </button>
-                  <button type="button" onClick={() => file.current?.click()}>
-                    <FolderOpen size={13} />
-                    Load
-                  </button>
-                  <button type="button" onClick={reset}>
-                    <RotateCcw size={13} />
-                    Reset
-                  </button>
-                </div>
               </div>
               <input
                 ref={file}
@@ -615,8 +788,8 @@ export default function App() {
                   dirty={!!result && dirty}
                   label={
                     result
-                      ? `HTD ${result.parameters.profile} · ${result.parameters.teeth} teeth`
-                      : `HTD ${p.profile} · ${p.teeth || '—'} teeth`
+                      ? `${profileLabel(result.parameters.profile)} · ${result.parameters.teeth} teeth`
+                      : `${profileLabel(p.profile)} · ${p.teeth || '—'} teeth`
                   }
                 />
                 <div className="dimension-grid">
@@ -689,17 +862,6 @@ export default function App() {
         </div>
       </main>
       <footer>
-        <span>
-          Built by{' '}
-          <a href="https://www.josephkaisner.com" target="_blank" rel="noreferrer">
-            Joseph Kaisner <ArrowUpRight size={12} />
-          </a>
-        </span>
-        <nav className="guide-links" aria-label="Guides">
-          <Link to="/htd-profiles">HTD profiles</Link>
-          <Link to="/d-shaft">D-shaft bore</Link>
-          <Link to="/download">STEP and STL</Link>
-        </nav>
         <a href="/NOTICE.txt" target="_blank" rel="noreferrer">
           Source & licenses
         </a>
@@ -718,9 +880,10 @@ export default function App() {
               <div>
                 <h3>Define your pulley.</h3>
                 <p>
-                  Choose the HTD pitch printed on your belt, then set the tooth count, belt width,
-                  and bore. For a D-shaft, switch the bore to D-shaft and set the diameter and the
-                  flat. Extra space adds clearance across the whole face.
+                  Choose the profile printed on your belt, then set the tooth count, belt width, and
+                  bore. For a D-shaft, switch the bore to D-shaft and set the diameter and the flat.
+                  Extra space adds clearance across the whole face. Shell or fin lightening and the
+                  clamp are under Hub, lightening & clamp.
                 </p>
               </div>
             </li>
@@ -748,9 +911,9 @@ export default function App() {
           <div className="help-note">
             <h3>Check the fit before the final part.</h3>
             <p>
-              These nominal HTD 3M, 5M, and 8M profiles use the FreeCAD Gears circular-arc
-              construction. Physical belt fit hasn’t been verified here. Print a short test piece
-              first. HTD and GT belt profiles are different; 14M and 20M aren’t included.
+              HTD profiles use a circular-arc tooth. GT2, GT3, and GT5 use a modified curvilinear
+              tooth. An HTD belt and a GT belt are not interchangeable. Physical belt fit hasn’t
+              been verified here. Print a short test piece first.
             </p>
             <p>
               The exported file contains the geometry, not a Fusion feature history. You can add
