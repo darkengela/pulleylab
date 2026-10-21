@@ -68,13 +68,20 @@ export type Parameters = {
   lightening: 'off' | 'shell' | 'fins';
   /** Minimum wall left at the bore and under the tooth roots, in mm. */
   wall: number;
-  /** Bottom collar with a radial set screw. Off leaves the hub unchanged. */
-  clamp: boolean;
-  /** How far the clamp collar extends from the pulley, in mm. */
-  clamp_height: number;
-  /** Radial wall thickness of the clamp collar, in mm. */
-  clamp_thickness: number;
-  clamp_screw: ScrewSize;
+  /** Bottom collar with one radial set screw. Off leaves the hub unchanged. */
+  set_screw: boolean;
+  /** How far the set-screw collar extends from the pulley, in mm. */
+  set_screw_height: number;
+  /** Radial wall thickness of the set-screw collar, in mm. */
+  set_screw_wall: number;
+  set_screw_size: ScrewSize;
+  /** Split shaft collar beyond the hub. Off adds nothing. */
+  split_clamp: boolean;
+  /** Axial length of the split clamp collar, in mm. */
+  split_clamp_length: number;
+  /** Radial wall thickness of the split clamp collar, in mm. Ears are sized from the screw. */
+  split_clamp_wall: number;
+  split_clamp_screw: ScrewSize;
 };
 export const DEFAULTS: Parameters = {
   profile: '8M',
@@ -93,10 +100,14 @@ export const DEFAULTS: Parameters = {
   hub_length: 0,
   lightening: 'off',
   wall: 2,
-  clamp: false,
-  clamp_height: 8,
-  clamp_thickness: 4,
-  clamp_screw: 'M3',
+  set_screw: false,
+  set_screw_height: 8,
+  set_screw_wall: 4,
+  set_screw_size: 'M3',
+  split_clamp: false,
+  split_clamp_length: 10,
+  split_clamp_wall: 3,
+  split_clamp_screw: 'M3',
 };
 /** Circular bore diameter, or the D-shaft's full round diameter when that mode is on. */
 export function holeDiameter(p: Parameters) {
@@ -107,17 +118,51 @@ export function profileLabel(id: Profile) {
   return spec.family === 'HTD' ? `HTD ${id}` : id;
 }
 /**
- * One bottom boss. A clamp uses the hub side: the collar is the longer of the
- * hub length and the clamp height, and the wider of the hub diameter and the
- * bore plus two clamp walls. Clamp off keeps the hub as entered.
+ * One bottom boss. A set screw uses the hub side: the collar is the longer of
+ * the hub length and the set-screw height, and the wider of the hub diameter
+ * and the bore plus two set-screw walls. Set screw off keeps the hub as entered.
+ * The split clamp is a separate collar beyond this boss.
  */
 export function extension(p: Parameters) {
-  if (!p.clamp) return { length: p.hub_length, diameter: p.hub_diameter };
+  if (!p.set_screw) return { length: p.hub_length, diameter: p.hub_diameter };
   const hole = holeDiameter(p);
   return {
-    length: Math.max(p.hub_length, p.clamp_height),
-    diameter: Math.max(p.hub_diameter, hole + 2 * p.clamp_thickness),
+    length: Math.max(p.hub_length, p.set_screw_height),
+    diameter: Math.max(p.hub_diameter, hole + 2 * p.set_screw_wall),
   };
+}
+/** ISO 4762 socket-head diameter, used only to size split-clamp ears. */
+export const SCREW_HEAD: Record<ScrewSize, number> = {
+  M2: 3.8,
+  'M2.5': 4.5,
+  M3: 5.5,
+  M4: 7,
+  M5: 8.5,
+  M6: 10,
+};
+/** ISO 273 medium clearance hole. */
+export const SCREW_CLEARANCE: Record<ScrewSize, number> = {
+  M2: 2.4,
+  'M2.5': 2.9,
+  M3: 3.4,
+  M4: 4.5,
+  M5: 5.5,
+  M6: 6.6,
+};
+export function splitClampLayout(p: Parameters) {
+  const screw = threadProfile(p.split_clamp_screw);
+  const head = SCREW_HEAD[p.split_clamp_screw];
+  const clearance = SCREW_CLEARANCE[p.split_clamp_screw];
+  const hole = holeDiameter(p);
+  const outerR = hole / 2 + p.split_clamp_wall;
+  const earThick = Math.max(Number((screw.major * 1.15).toFixed(4)), 2.4);
+  const slot = Math.max(1, screw.pitch);
+  // Ears sit on −Y so a round-bore set screw (+Y) and a D-flat set screw (+X) stay clear.
+  const yCenter = -(outerR + head / 2 + 0.4);
+  const bite = Math.min(p.split_clamp_wall * 0.4, 1);
+  const earInner = -(outerR - bite);
+  const earOuter = yCenter - head / 2 - 0.6;
+  return { screw, head, clearance, hole, outerR, earThick, slot, yCenter, earInner, earOuter };
 }
 /** ISO 68-1 basic metric profile: H = (√3/2) P, depth 5H/8, crest flat P/8, root flat P/4. */
 export function threadProfile(size: ScrewSize) {
@@ -136,7 +181,12 @@ export function dimensions(p: Parameters) {
     outside,
     root: outside - 2 * s.depth,
     face: p.belt_width + p.clearance,
-    total: p.belt_width + p.clearance + count * p.flange_thickness + extension(p).length,
+    total:
+      p.belt_width +
+      p.clearance +
+      count * p.flange_thickness +
+      extension(p).length +
+      (p.split_clamp ? p.split_clamp_length : 0),
     flange: outside + (count ? 2 * p.flange_overhang : 0),
   };
 }
@@ -152,19 +202,66 @@ export function lighteningStatus(p: Parameters) {
     return 'Not enough material for this minimum wall.';
   return '';
 }
-/** Empty when the clamp is off or the screw fits inside the collar. */
-export function clampError(p: Parameters) {
-  if (!p.clamp) return '';
+/** Empty when the set screw is off or the thread fits in the collar. */
+export function setScrewError(p: Parameters) {
+  if (!p.set_screw) return '';
   const hole = holeDiameter(p);
-  if (!(hole > 0)) return 'A clamp needs a bore so the screw can reach the shaft.';
-  const screw = SCREWS[p.clamp_screw];
+  if (!(hole > 0)) return 'A set screw needs a bore so it can reach the shaft.';
+  const screw = SCREWS[p.set_screw_size];
   const wall = (extension(p).diameter - hole) / 2;
   const needHeight = screw.major + 2 * screw.pitch;
-  if (p.clamp_height < needHeight - 1e-9 || wall < screw.major - 1e-9)
-    return `${p.clamp_screw} needs a clamp wall of at least ${screw.major} mm and a clamp height of at least ${needHeight.toFixed(2)} mm so the thread stays inside the collar.`;
+  if (wall < screw.major - 1e-9)
+    return `${p.set_screw_size} needs a set screw wall of at least ${screw.major} mm so the thread stays inside the collar.`;
+  if (p.set_screw_height < needHeight - 1e-9)
+    return `${p.set_screw_size} needs a set screw height of at least ${needHeight.toFixed(2)} mm so the thread stays inside the collar.`;
   if (screw.major >= hole - 0.2)
-    return `${p.clamp_screw} is too large for a ${hole.toFixed(2)} mm bore. Use a smaller screw or a larger bore.`;
+    return `${p.set_screw_size} is too large for a ${hole.toFixed(2)} mm bore. Use a smaller screw or a larger bore.`;
   return '';
+}
+/** Empty when the split clamp is off or the collar, ears, and screw fit. */
+export function splitClampError(p: Parameters) {
+  if (!p.split_clamp) return '';
+  const hole = holeDiameter(p);
+  if (!(hole > 0)) return 'A split clamp needs a bore so the collar can close on the shaft.';
+  if (p.split_clamp_wall < 1.2 - 1e-9)
+    return 'Split clamp wall must be at least 1.20 mm.';
+  const layout = splitClampLayout(p);
+  const needLength = layout.head + 1;
+  if (p.split_clamp_length < needLength - 1e-9)
+    return `Split clamp length must be at least ${needLength.toFixed(2)} mm so the ear surrounds the ${p.split_clamp_screw} screw head.`;
+  const boltR = layout.clearance / 2;
+  if (Math.abs(layout.yCenter) - boltR < hole / 2 + 0.4)
+    return `${p.split_clamp_screw} would enter the shaft bore. Increase the split clamp wall or use a smaller screw.`;
+  return '';
+}
+/** Cylinder centerlines closer than the sum of their radii. */
+export function cylindersCollide(
+  a: { y: number; z: number; r: number },
+  b: { y: number; z: number; r: number },
+) {
+  return Math.hypot(a.y - b.y, a.z - b.z) < a.r + b.r - 1e-6;
+}
+/**
+ * The split clamp is stacked beyond the set-screw boss. This reports when the
+ * set-screw hole and the clamp bolt still intersect.
+ */
+export function featuresCollide(p: Parameters) {
+  if (!p.set_screw || !p.split_clamp) return '';
+  const layout = splitClampLayout(p);
+  const set = SCREWS[p.set_screw_size];
+  const jointGap = p.set_screw_height / 2 + p.split_clamp_length / 2;
+  const setScrew = {
+    y: p.d_shaft ? 0 : holeDiameter(p) / 2,
+    z: jointGap,
+    r: set.major / 2,
+  };
+  const bolt = { y: layout.yCenter, z: 0, r: layout.clearance / 2 };
+  if (cylindersCollide(setScrew, bolt))
+    return 'The set screw and the split clamp screw occupy the same space. Increase the set screw height or the clamp length, or turn one of them off.';
+  return '';
+}
+export function shaftFeatureError(p: Parameters) {
+  return featuresCollide(p) || setScrewError(p) || splitClampError(p);
 }
 export const LIMITS = {
   teeth: [12, 240],
@@ -179,24 +276,50 @@ export const LIMITS = {
   hub_diameter: [0, 1000],
   hub_length: [0, 100],
   wall: [0.2, 40],
-  clamp_height: [0.2, 80],
-  clamp_thickness: [0.2, 40],
+  set_screw_height: [0.2, 80],
+  set_screw_wall: [0.2, 40],
+  split_clamp_length: [0.2, 80],
+  split_clamp_wall: [0.2, 40],
 } as const;
+const LEGACY_KEYS: Record<string, keyof Parameters> = {
+  clamp: 'set_screw',
+  clamp_height: 'set_screw_height',
+  clamp_thickness: 'set_screw_wall',
+  clamp_screw: 'set_screw_size',
+};
+function normalizeInput(raw: unknown) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return raw;
+  const src = raw as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(src)) {
+    if (Object.hasOwn(LEGACY_KEYS, key)) continue;
+    out[key] = value;
+  }
+  for (const [key, value] of Object.entries(src)) {
+    const next = LEGACY_KEYS[key];
+    if (next && !Object.hasOwn(out, next)) out[next] = value;
+  }
+  return out;
+}
 export function validate(raw: unknown): Parameters {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw))
+  const input = normalizeInput(raw);
+  if (!input || typeof input !== 'object' || Array.isArray(input))
     throw Error('Choose a PulleyLab settings file.');
-  if (Object.keys(raw).some((k) => !Object.hasOwn(DEFAULTS, k)))
+  if (Object.keys(input).some((k) => !Object.hasOwn(DEFAULTS, k)))
     throw Error('This file includes unsupported settings.');
-  const p = { ...DEFAULTS, ...raw } as Parameters;
+  const p = { ...DEFAULTS, ...input } as Parameters;
   if (typeof p.profile !== 'string' || !Object.hasOwn(PROFILES, p.profile))
     throw Error('Choose an HTD 3M, 5M, 8M, 14M, or 20M profile, or GT2, GT3, or GT5.');
   if (!['none', 'bottom', 'both'].includes(p.flanges))
     throw Error('Choose a valid flange arrangement.');
   if (!['off', 'shell', 'fins'].includes(p.lightening))
     throw Error('Choose solid, shell, or fin lightening.');
-  if (typeof p.clamp !== 'boolean') throw Error('Choose whether to add a clamp.');
-  if (typeof p.clamp_screw !== 'string' || !Object.hasOwn(SCREWS, p.clamp_screw))
-    throw Error('Choose an M2, M2.5, M3, M4, M5, or M6 clamp screw.');
+  if (typeof p.set_screw !== 'boolean') throw Error('Choose whether to add a set screw.');
+  if (typeof p.split_clamp !== 'boolean') throw Error('Choose whether to add a split clamp.');
+  if (typeof p.set_screw_size !== 'string' || !Object.hasOwn(SCREWS, p.set_screw_size))
+    throw Error('Choose an M2, M2.5, M3, M4, M5, or M6 set screw.');
+  if (typeof p.split_clamp_screw !== 'string' || !Object.hasOwn(SCREWS, p.split_clamp_screw))
+    throw Error('Choose an M2, M2.5, M3, M4, M5, or M6 split clamp screw.');
   for (const [key, [lo, hi]] of Object.entries(LIMITS)) {
     const value = p[key as keyof typeof LIMITS];
     const label =
@@ -206,11 +329,15 @@ export function validate(raw: unknown): Parameters {
           ? 'D-shaft flat'
           : key === 'wall'
             ? 'Minimum wall'
-            : key === 'clamp_height'
-              ? 'Clamp height'
-              : key === 'clamp_thickness'
-                ? 'Clamp wall'
-                : key.replaceAll('_', ' ');
+            : key === 'set_screw_height'
+              ? 'Set screw height'
+              : key === 'set_screw_wall'
+                ? 'Set screw wall'
+                : key === 'split_clamp_length'
+                  ? 'Split clamp length'
+                  : key === 'split_clamp_wall'
+                    ? 'Split clamp wall'
+                    : key.replaceAll('_', ' ');
     if (typeof value !== 'number' || !Number.isFinite(value) || value < lo || value > hi)
       throw Error(
         `${label} must be between ${lo} and ${hi} mm${key === 'teeth' ? ' (whole teeth)' : ''}.`.replace(
@@ -244,8 +371,8 @@ export function validate(raw: unknown): Parameters {
     throw Error(
       `For this ${p.d_shaft ? 'D-shaft' : 'bore'}, hub diameter must be between ${(hole + 2).toFixed(2)} and ${d.root.toFixed(2)} mm.`,
     );
-  const clamp = clampError(p);
-  if (clamp) throw Error(clamp);
+  const shaft = shaftFeatureError(p);
+  if (shaft) throw Error(shaft);
   return p;
 }
 const num = (n: number) => Number(n.toFixed(4)).toString();
@@ -278,7 +405,14 @@ export function filename(p: Parameters, extensionName?: 'step' | 'stl' | 'json')
   parts.push(p.hub_length > 0 ? `${num(p.hub_diameter)}x${num(p.hub_length)}mmHub` : 'NoHub');
   if (p.lightening !== 'off')
     parts.push(`${p.lightening === 'shell' ? 'Shell' : 'Fins'}${num(p.wall)}mmWall`);
-  if (p.clamp) parts.push(`${num(p.clamp_height)}x${num(p.clamp_thickness)}mmClamp${p.clamp_screw}`);
+  if (p.set_screw)
+    parts.push(
+      `${num(p.set_screw_height)}x${num(p.set_screw_wall)}mmSetScrew${p.set_screw_size}`,
+    );
+  if (p.split_clamp)
+    parts.push(
+      `${num(p.split_clamp_length)}x${num(p.split_clamp_wall)}mmSplitClamp${p.split_clamp_screw}`,
+    );
   return parts.join('_') + (extensionName ? '.' + extensionName : '');
 }
 

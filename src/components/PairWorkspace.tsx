@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Download } from 'lucide-react';
+import { track } from '@vercel/analytics';
 import { zipSync, strToU8 } from 'fflate';
 import type { ShapeMesh } from 'replicad';
 import Viewer from './Viewer';
@@ -45,6 +46,8 @@ export default function PairWorkspace({
   onBusyChange,
   onBack,
   dirty,
+  onError,
+  beforeDownload,
 }: {
   pair: PulleyPair;
   appearance: Appearance;
@@ -52,6 +55,8 @@ export default function PairWorkspace({
   onBusyChange: (busy: boolean) => void;
   onBack: () => void;
   dirty: boolean;
+  onError: (message: string) => void;
+  beforeDownload: () => Promise<boolean>;
 }) {
   const [result, setResult] = useState<{ drive: PulleyResult; driven: PulleyResult } | null>(null),
     [stage, setStage] = useState('Loading CAD engine'),
@@ -71,21 +76,27 @@ export default function PairWorkspace({
     };
     const timer = setTimeout(() => {
       stop();
-      setError('This pair is taking too long. Try fewer teeth or simpler features.');
+      const message = 'This pair is taking too long. Try fewer teeth or simpler features.';
+      setError(message);
+      onError(message);
     }, 180000);
     worker.onmessage = (e) => {
       if (e.data.type === 'progress') setStage(e.data.stage);
       if (e.data.type === 'pair-result') {
         setResult({ drive: e.data.drive, driven: e.data.driven });
+        track('preview_ready');
         stop();
       }
       if (e.data.type === 'error') {
         setError(e.data.error);
+        onError(e.data.error);
         stop();
       }
     };
     worker.onerror = () => {
-      setError('The CAD engine could not load. Check your connection and retry.');
+      const message = 'The CAD engine could not load. Check your connection and retry.';
+      setError(message);
+      onError(message);
       stop();
     };
     worker.postMessage({ type: 'pair', drive: pair.drive, driven: pair.driven });
@@ -107,6 +118,7 @@ export default function PairWorkspace({
   const busy = !result && !error;
   const download = async () => {
     if (!result || dirty) return;
+    if (!(await beforeDownload())) return;
     setPacking(true);
     try {
       const files: Record<string, Uint8Array> = {};
@@ -132,9 +144,10 @@ export default function PairWorkspace({
       a.href = url;
       a.download = pairFilename(pair);
       a.click();
+      track('download_completed');
       setTimeout(() => URL.revokeObjectURL(url), 10000);
     } catch {
-      setError('Could not package the files. Try downloading again.');
+      onError('Could not package the files. Try downloading again.');
     } finally {
       setPacking(false);
     }
@@ -189,14 +202,15 @@ export default function PairWorkspace({
         <div className="export-heading">
           <div>
             <p>
-              {error ||
-                (dirty
+              {error
+                ? 'Pair generation failed.'
+                : dirty
                   ? 'Settings changed. Select and generate an updated pair.'
                   : busy
                     ? stage
                     : pair.centerDistance
                       ? 'Nominal spacing shown · allow for belt tension adjustment'
-                      : 'Two independent solids · preview spacing is illustrative')}
+                      : 'Two independent solids · preview spacing is illustrative'}
             </p>
             {error && !result && (
               <button type="button" className="retry-pair" onClick={() => setAttempt((v) => v + 1)}>

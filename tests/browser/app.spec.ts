@@ -20,14 +20,10 @@ test('build, inspect, download, change dimensions, and reload settings', async (
     await expect(step).toBeEnabled();
   }
 
-  const downloading = page.waitForEvent('download');
   await step.click();
-  const download = await downloading;
-  expect(download.suggestedFilename()).toBe(filename(DEFAULTS, 'step'));
-  const stream = await download.createReadStream();
-  const chunks = [];
-  for await (const chunk of stream!) chunks.push(chunk);
-  expect(Buffer.concat(chunks).toString()).toContain('MANIFOLD_SOLID_BREP');
+  await expect(page.getByRole('dialog')).toContainText('$5');
+  await expect(page.getByRole('dialog')).toContainText('STEP and STL');
+  await page.getByRole('button', { name: 'Close dialog' }).click();
   await page.getByRole('spinbutton', { name: 'Tooth count', exact: true }).fill('36');
   await expect(step).toBeDisabled();
   await page.getByRole('spinbutton', { name: 'Bore diameter', exact: true }).fill('999');
@@ -75,9 +71,9 @@ test('shared dimensions work on a phone without overflow', async ({ page }) => {
     '32',
   );
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  const downloading = page.waitForEvent('download');
   await page.getByRole('button', { name: 'STL', exact: true }).click();
-  expect((await downloading).suggestedFilename()).toBe(filename(p, 'stl'));
+  await expect(page.getByRole('dialog')).toContainText('$5');
+  await page.getByRole('button', { name: 'Close dialog' }).click();
   await page.screenshot({ path: 'test-results/mobile.png', fullPage: true });
 });
 
@@ -131,22 +127,10 @@ test('live OD, shared nylon finish, and a complete drive/driven pair', async ({
     'aria-pressed',
     'true',
   );
-  const downloading = page.waitForEvent('download');
   await zip.click();
-  const download = await downloading;
-  expect(download.suggestedFilename()).toContain('24T-Drive_72T-Driven_3to1');
-  const stream = await download.createReadStream();
-  const chunks: Buffer[] = [];
-  for await (const chunk of stream!) chunks.push(chunk);
-  const { unzipSync, strFromU8 } = await import('fflate');
-  const files = unzipSync(Buffer.concat(chunks));
-  const steps = Object.keys(files).filter((f) => f.endsWith('.step'));
-  expect(steps).toHaveLength(2);
-  expect(steps.some((f) => f.startsWith('DRIVE_') && f.includes('24Teeth'))).toBe(true);
-  expect(
-    steps.some((f) => f.startsWith('DRIVEN_') && f.includes('72Teeth') && f.includes('20mmBore')),
-  ).toBe(true);
-  for (const file of steps) expect(strFromU8(files[file])).toContain('MANIFOLD_SOLID_BREP');
+  await expect(page.getByRole('dialog')).toContainText('$5');
+  await expect(page.getByRole('dialog')).toContainText('two designs');
+  await page.getByRole('button', { name: 'Close dialog' }).click();
   await page.getByRole('button', { name: 'Share build', exact: true }).click();
   const pairLink = await page.locator('.share-url').inputValue();
   await recipient.goto(pairLink);

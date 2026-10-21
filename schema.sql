@@ -1,0 +1,57 @@
+-- Apply once to the Neon database. This file only creates missing tables.
+-- Do not drop or rewrite existing production data.
+
+CREATE TABLE IF NOT EXISTS designs (
+  id TEXT PRIMARY KEY,
+  profile TEXT NOT NULL,
+  teeth INTEGER NOT NULL,
+  parameters JSONB NOT NULL,
+  email TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS orders (
+  id TEXT PRIMARY KEY,
+  design_id TEXT NOT NULL REFERENCES designs (id),
+  email TEXT,
+  stripe_session_id TEXT UNIQUE,
+  status TEXT NOT NULL CHECK (status IN ('pending', 'paid', 'failed')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS entitlements (
+  id TEXT PRIMARY KEY,
+  order_id TEXT NOT NULL UNIQUE REFERENCES orders (id),
+  design_id TEXT NOT NULL REFERENCES designs (id),
+  email TEXT NOT NULL,
+  profile TEXT NOT NULL,
+  teeth INTEGER NOT NULL,
+  parameters JSONB NOT NULL,
+  adjustment_deadline TIMESTAMPTZ NOT NULL,
+  grant_hash TEXT,
+  grant_expires_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS revisions (
+  id TEXT PRIMARY KEY,
+  entitlement_id TEXT NOT NULL REFERENCES entitlements (id),
+  parameters JSONB NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS webhook_events (
+  id TEXT PRIMARY KEY,
+  received_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS recovery_codes (
+  id TEXT PRIMARY KEY,
+  email TEXT NOT NULL,
+  code_hash TEXT NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL,
+  used_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS entitlements_email_idx ON entitlements (email);
+CREATE INDEX IF NOT EXISTS entitlements_grant_hash_idx ON entitlements (grant_hash);

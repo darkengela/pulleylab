@@ -9,6 +9,7 @@ import {
   draw,
   makeFace,
   makeThreePointArc,
+  makeBox,
   makeCylinder,
   sketchHelix,
   Vector,
@@ -25,6 +26,7 @@ import {
   holeDiameter,
   extension,
   lighteningStatus,
+  splitClampLayout,
   threadProfile,
 } from './parameters';
 import type { Parameters } from './parameters';
@@ -190,10 +192,12 @@ export function createPulley(raw: unknown) {
         body.fuse(keep(makeCylinder(boss.diameter / 2, boss.length, [0, 0, bottom - boss.length]))),
       );
     body = lighten(body, p, d, bottom, keep);
+    if (p.split_clamp) body = keep(body.fuse(splitClampBody(p, bottom, boss.length, keep)));
     const hole = holeDiameter(p);
+    const clampLength = p.split_clamp ? p.split_clamp_length : 0;
     if (hole > 0) {
       const radius = hole / 2,
-        z = bottom - boss.length - 1,
+        z = bottom - boss.length - clampLength - 1,
         height = d.total + 2;
       // Bore axis is Z. A D-shaft keeps one flat facing +X: the flat plane is at
       // x = flat - radius, and the opposite point on the circle is at x = -radius.
@@ -205,11 +209,13 @@ export function createPulley(raw: unknown) {
       }
       body = keep(body.cut(tool));
     }
-    if (p.clamp) {
-      const [pilot, groove] = clampTools(p, bottom, boss.length, keep);
+    if (p.set_screw) {
+      const cut = setScrewCut(p, bottom, boss.length);
+      const [pilot, groove] = internalThread(threadProfile(p.set_screw_size), cut.origin, cut.axis, cut.length, keep);
       body = keep(body.cut(pilot));
       body = keep(body.cut(groove));
     }
+    if (p.split_clamp) body = cutSplitClamp(body, p, bottom, boss.length, keep);
     const solids = body.solids;
     solids.forEach(keep);
     const oc = getOC();
@@ -314,29 +320,45 @@ function sector(
   );
 }
 
-/** Radial ISO internal thread through one wall of the bottom collar, opening into the bore. */
-function clampTools(
-  p: Parameters,
-  bottom: number,
-  bossLength: number,
+/**
+ * Set-screw hole. A round bore keeps a radial +Y hole. A D-shaft puts the hole
+ * on the +X flat: the flat is the YZ plane at x = flat − radius, and the screw
+ * axis is +X so it is perpendicular to that face.
+ */
+function setScrewCut(p: Parameters, bottom: number, bossLength: number) {
+  const hole = holeDiameter(p);
+  const outerR = extension(p).diameter / 2;
+  const z = bottom - bossLength + p.set_screw_height / 2;
+  if (p.d_shaft) {
+    const flatX = p.d_flat - hole / 2;
+    const x0 = flatX - 0.35;
+    return {
+      origin: [x0, 0, z] as Point3,
+      axis: [1, 0, 0] as Point3,
+      length: outerR + 0.35 - x0,
+    };
+  }
+  const y0 = hole / 2 - 0.35;
+  return {
+    origin: [0, y0, z] as Point3,
+    axis: [0, 1, 0] as Point3,
+    length: outerR - y0 + 0.35,
+  };
+}
+/** ISO internal thread. The sketch +Y is radially outward on the helix. */
+function internalThread(
+  screw: ReturnType<typeof threadProfile>,
+  origin: Point3,
+  axis: Point3,
+  length: number,
   keep: <T extends Deletable>(x: T) => T,
 ) {
-  const hole = holeDiameter(p);
-  const screw = threadProfile(p.clamp_screw);
-  const wall = (extension(p).diameter - hole) / 2;
-  const z = bottom - bossLength + p.clamp_height / 2;
-  const y0 = hole / 2 - 0.35;
-  const length = wall + 0.7;
-  const axis: Point3 = [0, 1, 0];
-  const center: Point3 = [0, y0, z];
-  // Pilot is the ISO minor hole. The sketch's +Y is radially outward on this helix,
-  // so the trapezoid cuts the thread root out to the major diameter.
-  const pilot = keep(makeCylinder(screw.minor / 2, length, center, axis));
+  const pilot = keep(makeCylinder(screw.minor / 2, length, origin, axis));
   const innerHalf = (7 * screw.pitch) / 16;
   const outerHalf = screw.pitch / 8;
   let groove: Shape3D;
   try {
-    groove = sketchHelix(screw.pitch, length, screw.minor / 2, center, axis).sweepSketch(
+    groove = sketchHelix(screw.pitch, length, screw.minor / 2, origin, axis).sweepSketch(
       (plane) =>
         draw([-innerHalf, -0.05])
           .lineTo([-outerHalf, screw.radial])
@@ -347,11 +369,71 @@ function clampTools(
       { withContact: true },
     );
   } catch {
-    throw Error('The clamp thread could not be built for this screw and collar.');
+    throw Error('The thread could not be built for this screw.');
   }
-  if (groove.solids.length !== 1)
-    throw Error('The clamp thread could not be built for this screw and collar.');
+  if (groove.solids.length !== 1) throw Error('The thread could not be built for this screw.');
   return [pilot, keep(groove)] as const;
+}
+/** Solid collar and ears, before the shaft bore is cut. Sits entirely beyond the boss. */
+function splitClampBody(
+  p: Parameters,
+  bottom: number,
+  bossLength: number,
+  keep: <T extends Deletable>(x: T) => T,
+) {
+  const layout = splitClampLayout(p);
+  const z1 = bottom - bossLength;
+  const z0 = z1 - p.split_clamp_length;
+  let clamp: Shape3D = keep(makeCylinder(layout.outerR, p.split_clamp_length, [0, 0, z0]));
+  const half = layout.slot / 2;
+  const ears = [
+    [half, half + layout.earThick],
+    [-half - layout.earThick, -half],
+  ] as const;
+  for (const [x0, x1] of ears)
+    clamp = keep(
+      clamp.fuse(keep(makeBox([x0, layout.earOuter, z0], [x1, layout.earInner, z1]))),
+    );
+  return clamp;
+}
+function cutSplitClamp(
+  body: Shape3D,
+  p: Parameters,
+  bottom: number,
+  bossLength: number,
+  keep: <T extends Deletable>(x: T) => T,
+) {
+  const layout = splitClampLayout(p);
+  const z1 = bottom - bossLength;
+  const z0 = z1 - p.split_clamp_length;
+  const half = layout.slot / 2;
+  const slot = keep(
+    makeBox(
+      [-half, layout.yCenter - layout.head, z0 - 0.2],
+      [half, -(layout.hole / 2) + 0.25, z1],
+    ),
+  );
+  body = keep(body.cut(slot));
+  const zMid = (z0 + z1) / 2;
+  const clearance = keep(
+    makeCylinder(
+      layout.clearance / 2,
+      layout.earThick + 0.5,
+      [half - 0.15, layout.yCenter, zMid],
+      [1, 0, 0],
+    ),
+  );
+  body = keep(body.cut(clearance));
+  const [pilot, groove] = internalThread(
+    layout.screw,
+    [-half - layout.earThick - 0.2, layout.yCenter, zMid],
+    [1, 0, 0],
+    layout.earThick + 0.55,
+    keep,
+  );
+  body = keep(body.cut(pilot));
+  body = keep(body.cut(groove));
+  return body;
 }
 
 export function generateFiles(raw: unknown) {

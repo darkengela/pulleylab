@@ -40,7 +40,7 @@ Open http://127.0.0.1:5173. The first build downloads a CAD engine of approximat
 
 ## Deploy to Vercel
 
-Import this GitHub repository into Vercel. The checked-in `vercel.json` configures Vite, `npm ci`, `npm run build`, and the `dist` output directory. No environment variables are required. The result is a static website; CAD computation takes place on the visitor’s device.
+Import this GitHub repository into Vercel. The checked-in `vercel.json` configures Vite, `npm ci`, `npm run build`, and the `dist` output directory. CAD still runs in the browser. STEP and STL downloads use the soft paywall described in `PAYMENTS.md`.
 
 ## Verify
 

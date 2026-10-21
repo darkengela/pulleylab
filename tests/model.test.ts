@@ -3,10 +3,11 @@ import initOpenCascade from 'replicad-opencascadejs';
 import { setOC } from 'replicad';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { measureShapeVolumeProperties } from 'replicad';
+import { makeCylinder, measureShapeVolumeProperties, measureVolume } from 'replicad';
 import { createPulley, generateFiles } from '../src/cad/model';
 import {
   DEFAULTS,
+  cylindersCollide,
   dimensions,
   filename,
   lighteningStatus,
@@ -115,16 +116,16 @@ describe('GT, larger HTD, lightening, and clamp solids', () => {
       result.shape.delete();
     }
   }, 30000);
-  it('cuts a helical clamp thread and leaves the hub unchanged when the clamp is off', async () => {
+  it('cuts a helical set-screw thread and leaves the hub unchanged when the set screw is off', async () => {
     const collar = { flanges: 'none' as const, hub_length: 10, hub_diameter: 16, bore: 8 };
-    const plain = createPulley({ ...DEFAULTS, ...collar, clamp: false });
+    const plain = createPulley({ ...DEFAULTS, ...collar, set_screw: false });
     const threaded = createPulley({
       ...DEFAULTS,
       ...collar,
-      clamp: true,
-      clamp_height: 10,
-      clamp_thickness: 4,
-      clamp_screw: 'M3',
+      set_screw: true,
+      set_screw_height: 10,
+      set_screw_wall: 4,
+      set_screw_size: 'M3',
     });
     const screw = threadProfile('M3');
     const removed = plain.volume - threaded.volume;
@@ -134,16 +135,16 @@ describe('GT, larger HTD, lightening, and clamp solids', () => {
     expect(removed).toBeGreaterThan(minorHole * 1.08);
     expect(removed).toBeLessThan(majorHole);
     expect(threaded.shape.solids).toHaveLength(1);
-    const off = createPulley({ ...DEFAULTS, hub_length: 8, hub_diameter: 20, clamp: false });
+    const off = createPulley({ ...DEFAULTS, hub_length: 8, hub_diameter: 20, set_screw: false });
     const legacy = createPulley({ ...DEFAULTS, hub_length: 8, hub_diameter: 20 });
     expect(off.volume).toBeCloseTo(legacy.volume, 3);
     const files = generateFiles({
       ...DEFAULTS,
       flanges: 'none',
-      clamp: true,
-      clamp_height: 10,
-      clamp_thickness: 4,
-      clamp_screw: 'M3',
+      set_screw: true,
+      set_screw_height: 10,
+      set_screw_wall: 4,
+      set_screw_size: 'M3',
       teeth: 16,
     });
     const text = await files.step.text();
@@ -152,6 +153,61 @@ describe('GT, larger HTD, lightening, and clamp solids', () => {
     expect(text).toMatch(/B_SPLINE_SURFACE|B_SPLINE_CURVE/);
     expect(files.stl.size).toBeGreaterThan(1000);
     for (const result of [plain, threaded, off, legacy]) result.shape.delete();
+  }, 30000);
+  it('puts the set screw on the D-shaft flat and builds a split clamp', () => {
+    const base = {
+      ...DEFAULTS,
+      flanges: 'none' as const,
+      teeth: 20,
+      bore: 8,
+      d_shaft: true,
+      d_diameter: 8,
+      d_flat: 7,
+      set_screw: true,
+      set_screw_height: 10,
+      set_screw_wall: 4,
+      set_screw_size: 'M3' as const,
+    };
+    const screwed = createPulley(base);
+    const flatHole = makeCylinder(0.3, 2, [4.2, 0, -5], [1, 0, 0]);
+    const roundSide = makeCylinder(0.3, 2, [0, 4.2, -5], [0, 1, 0]);
+    const flatHit = screwed.shape.intersect(flatHole);
+    const sideHit = screwed.shape.intersect(roundSide);
+    expect(measureVolume(flatHit)).toBeLessThan(0.05);
+    expect(measureVolume(sideHit)).toBeGreaterThan(0.2);
+    flatHit.delete();
+    sideHit.delete();
+    flatHole.delete();
+    roundSide.delete();
+    const plain = createPulley({ ...DEFAULTS, flanges: 'none', teeth: 16, bore: 8 });
+    const clamped = createPulley({
+      ...DEFAULTS,
+      flanges: 'none',
+      teeth: 16,
+      bore: 8,
+      split_clamp: true,
+      split_clamp_length: 12,
+      split_clamp_wall: 3,
+      split_clamp_screw: 'M3',
+    });
+    expect(clamped.volume).toBeGreaterThan(plain.volume + 40);
+    expect(clamped.shape.solids).toHaveLength(1);
+    const both = createPulley({
+      ...DEFAULTS,
+      flanges: 'none',
+      teeth: 16,
+      bore: 8,
+      set_screw: true,
+      set_screw_height: 10,
+      set_screw_wall: 4,
+      set_screw_size: 'M3',
+      split_clamp: true,
+      split_clamp_length: 12,
+      split_clamp_wall: 3,
+      split_clamp_screw: 'M4',
+    });
+    expect(both.shape.solids).toHaveLength(1);
+    for (const result of [screwed, plain, clamped, both]) result.shape.delete();
   }, 30000);
 });
 describe('parameters and human-readable filenames', () => {
@@ -228,27 +284,70 @@ describe('parameters and human-readable filenames', () => {
     expect(filename(lit)).toContain('Shell2.5mmWall');
     expect(filename({ ...DEFAULTS, lightening: 'fins', wall: 2 })).toContain('Fins2mmWall');
     expect(filename(DEFAULTS)).not.toContain('Shell');
-    const clamped = validate({
+    const screwed = validate({
       ...DEFAULTS,
+      set_screw: true,
+      set_screw_height: 10,
+      set_screw_wall: 4,
+      set_screw_size: 'M4',
+    });
+    expect(filename(screwed)).toContain('10x4mmSetScrewM4');
+    expect(parseBuild(JSON.parse(decodeURIComponent(shareHash(screwed).slice(3)))).parameters).toEqual(
+      screwed,
+    );
+    const legacy = validate({
+      profile: '8M',
+      teeth: 24,
+      belt_width: 20,
+      clearance: 1,
+      bore: 8,
+      flanges: 'both',
+      flange_thickness: 1.5,
+      flange_overhang: 2,
+      chamfer: 0.4,
+      hub_diameter: 0,
+      hub_length: 0,
       clamp: true,
       clamp_height: 10,
       clamp_thickness: 4,
       clamp_screw: 'M4',
     });
-    expect(filename(clamped)).toContain('10x4mmClampM4');
-    expect(parseBuild(JSON.parse(decodeURIComponent(shareHash(clamped).slice(3)))).parameters).toEqual(
-      clamped,
+    expect(legacy.set_screw).toBe(true);
+    expect(legacy.set_screw_size).toBe('M4');
+    expect(legacy.split_clamp).toBe(false);
+    const split = validate({
+      ...DEFAULTS,
+      split_clamp: true,
+      split_clamp_length: 12,
+      split_clamp_wall: 3.5,
+      split_clamp_screw: 'M5',
+    });
+    expect(filename(split)).toContain('12x3.5mmSplitClampM5');
+    expect(parseBuild(JSON.parse(decodeURIComponent(shareHash(split).slice(3)))).parameters).toEqual(
+      split,
     );
     expect(lighteningStatus({ ...DEFAULTS, lightening: 'shell', wall: 30 })).toMatch(/Not enough material/);
     expect(lighteningStatus(DEFAULTS)).toBe('');
-    expect(() => validate({ ...DEFAULTS, clamp: true, clamp_thickness: 1, clamp_screw: 'M5' })).toThrow(
-      /clamp wall/i,
-    );
-    expect(() => validate({ ...DEFAULTS, clamp: true, clamp_height: 3, clamp_screw: 'M6' })).toThrow(
-      /clamp height/i,
-    );
-    const hub = validate({ ...DEFAULTS, clamp: false, hub_length: 8, hub_diameter: 20 });
-    expect(hub.clamp).toBe(false);
+    expect(() =>
+      validate({ ...DEFAULTS, set_screw: true, set_screw_wall: 1, set_screw_size: 'M5' }),
+    ).toThrow(/set screw wall/i);
+    expect(() =>
+      validate({
+        ...DEFAULTS,
+        set_screw: true,
+        set_screw_height: 3,
+        set_screw_wall: 8,
+        set_screw_size: 'M6',
+      }),
+    ).toThrow(/set screw height/i);
+    expect(() =>
+      validate({ ...DEFAULTS, split_clamp: true, split_clamp_length: 2, split_clamp_screw: 'M4' }),
+    ).toThrow(/at least 8.00 mm/);
+    expect(cylindersCollide({ y: 0, z: 0, r: 2 }, { y: 1, z: 0, r: 2 })).toBe(true);
+    expect(cylindersCollide({ y: 0, z: 0, r: 1 }, { y: 5, z: 0, r: 1 })).toBe(false);
+    const hub = validate({ ...DEFAULTS, set_screw: false, hub_length: 8, hub_diameter: 20 });
+    expect(hub.set_screw).toBe(false);
+    expect(hub.split_clamp).toBe(false);
     expect(dimensions(hub).total).toBe(dimensions({ ...DEFAULTS, hub_length: 8, hub_diameter: 20 }).total);
   });
   it('omits inactive dimensions, avoids invalid filename characters', () => {

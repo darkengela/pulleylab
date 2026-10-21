@@ -13,12 +13,12 @@ import {
   LoaderCircle,
   RotateCcw,
   Settings2,
-  ShieldCheck,
   SlidersHorizontal,
   X,
 } from 'lucide-react';
 import type { FormEvent, ReactNode } from 'react';
 import { Analytics } from '@vercel/analytics/react';
+import { track } from '@vercel/analytics';
 import Viewer from './components/Viewer';
 import RatioPlanner from './components/RatioPlanner';
 import PairWorkspace from './components/PairWorkspace';
@@ -28,23 +28,32 @@ import {
   DEFAULTS,
   PROFILES,
   SCREWS,
-  clampError,
   dimensions,
   filename,
   lighteningStatus,
   profileLabel,
+  shaftFeatureError,
   readInitial,
   parseBuild,
   buildData,
   shareHash,
   validate,
 } from './cad/parameters';
-import type { Parameters, Profile } from './cad/parameters';
+import type { Parameters, Profile, ScrewSize } from './cad/parameters';
 import type { PulleyResult } from './cad/model';
+import { claimSession, recoverPurchase, startCheckout, verifyDownload } from './paywall/client';
 type NumberKey = Exclude<
   keyof Parameters,
-  'profile' | 'flanges' | 'd_shaft' | 'lightening' | 'clamp' | 'clamp_screw'
+  | 'profile'
+  | 'flanges'
+  | 'd_shaft'
+  | 'lightening'
+  | 'set_screw'
+  | 'set_screw_size'
+  | 'split_clamp'
+  | 'split_clamp_screw'
 >;
+type Notice = { id: number; text: string };
 function saveFile(blob: Blob, name: string) {
   const url = URL.createObjectURL(blob),
     a = document.createElement('a');
@@ -193,23 +202,29 @@ export default function App() {
     [result, setResult] = useState<PulleyResult | null>(null),
     [busy, setBusy] = useState(false),
     [stage, setStage] = useState('Loading CAD engine'),
-    [error, setError] = useState(initial.message ?? ''),
+    [errorNotice, setErrorNotice] = useState<Notice | null>(
+      initial.message ? { id: 1, text: initial.message } : null,
+    ),
     [toast, setToast] = useState(''),
-    [modal, setModal] = useState<'help' | 'share' | null>(null),
+    [modal, setModal] = useState<'help' | 'share' | 'checkout' | 'recover' | null>(null),
+    [checkoutDesign, setCheckoutDesign] = useState<Parameters | null>(null),
+    [checkoutNote, setCheckoutNote] = useState(''),
+    [recoverEmail, setRecoverEmail] = useState(''),
+    [recoverProof, setRecoverProof] = useState(''),
     [advanced, setAdvanced] = useState(false);
   const form = useRef<HTMLFormElement>(null),
     file = useRef<HTMLInputElement>(null),
     worker = useRef<Worker | null>(null),
     timeout = useRef<ReturnType<typeof setTimeout> | undefined>(undefined),
-    run = useRef(0);
+    run = useRef(0),
+    errorSeq = useRef(1);
   const dirty = !result || JSON.stringify(p) !== JSON.stringify(result.parameters),
     canDownload = !!result && !dirty && !busy,
     d = dimensions(p),
-    webStatus = lighteningStatus(p),
-    collarStatus = clampError(p);
+    blocking = shaftFeatureError(p) || lighteningStatus(p);
+  const showError = (text: string) => setErrorNotice({ id: ++errorSeq.current, text });
   const set = (key: keyof Parameters, value: number | string) => {
     setP((old) => ({ ...old, [key]: value }));
-    setError('');
   };
   const setDShaft = (on: boolean) => {
     setP((old) => {
@@ -222,7 +237,6 @@ export default function App() {
           : Number((d_diameter > 1 ? d_diameter - 1 : d_diameter / 2).toFixed(4));
       return { ...old, d_shaft: true, d_diameter, d_flat };
     });
-    setError('');
   };
   function cancel() {
     run.current++;
@@ -239,14 +253,13 @@ export default function App() {
     try {
       settings = validate(p);
     } catch (e) {
-      setError((e as Error).message);
+      showError((e as Error).message);
       return;
     }
     setPair(null);
     cancel();
     const id = ++run.current;
     setBusy(true);
-    setError('');
     setStage('Loading CAD engine');
     const w = new Worker(new URL('./cad/worker.ts', import.meta.url), { type: 'module' });
     worker.current = w;
@@ -262,27 +275,26 @@ export default function App() {
       if (data.type === 'progress') setStage(data.stage);
       if (data.type === 'result') {
         setResult(data.result);
+        track('preview_ready');
         try {
           localStorage.setItem('pulleylab:settings:v1', JSON.stringify(settings));
         } catch {}
         finish();
       }
       if (data.type === 'error') {
-        setError(data.error);
+        showError(data.error);
         finish();
       }
     };
     w.onerror = () => {
       if (id !== run.current) return;
-      setError('The CAD engine could not load. Check your connection and try again.');
+      showError('The CAD engine could not load. Check your connection and try again.');
       finish();
     };
     timeout.current = setTimeout(() => {
       if (id === run.current) {
         finish();
-        setError(
-          'This build is taking too long on this device. Try fewer teeth or a simpler pulley.',
-        );
+        showError('This build is taking too long on this device. Try fewer teeth or a simpler pulley.');
       }
     }, 90000);
     w.postMessage(settings);
@@ -311,6 +323,42 @@ export default function App() {
     const t = setTimeout(() => setToast(''), 3200);
     return () => clearTimeout(t);
   }, [toast]);
+  useEffect(() => {
+    if (!errorNotice) return;
+    const id = errorNotice.id;
+    const t = setTimeout(() => setErrorNotice((current) => (current?.id === id ? null : current)), 10000);
+    return () => clearTimeout(t);
+  }, [errorNotice]);
+  useEffect(() => {
+    if (!blocking) return;
+    setErrorNotice((current) => (current?.text === blocking ? current : { id: ++errorSeq.current, text: blocking }));
+  }, [blocking]);
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const checkout = params.get('checkout');
+    const sessionId = params.get('session_id');
+    if (!checkout) return;
+    history.replaceState(null, '', location.pathname + location.hash);
+    if (checkout === 'canceled') {
+      setToast('Checkout canceled. This design stays locked.');
+      return;
+    }
+    if (checkout !== 'success' || !sessionId) return;
+    let stop = false;
+    (async () => {
+      for (let attempt = 0; attempt < 5 && !stop; attempt++) {
+        if (await claimSession(sessionId)) {
+          setToast('Payment received. You can download this design.');
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+      }
+      if (!stop) setToast('Payment is not confirmed yet. Downloads stay locked.');
+    })();
+    return () => {
+      stop = true;
+    };
+  }, []);
   const field = (
     key: NumberKey,
     label: string,
@@ -341,10 +389,62 @@ export default function App() {
       </div>
     </label>
   );
-  const exportFile = (type: 'step' | 'stl') => {
-    if (canDownload) {
-      saveFile(result[type], filename(result.parameters, type));
-      setToast(`${type.toUpperCase()} downloaded`);
+  const openCheckout = (design: Parameters, note = '') => {
+    setCheckoutDesign(design);
+    setCheckoutNote(note);
+    setModal('checkout');
+  };
+  const authorize = async (designs: Parameters[], note = '') => {
+    track('export_click');
+    for (const design of designs) {
+      const verdict = await verifyDownload(design);
+      if (verdict === 'offline') {
+        showError('Could not verify this purchase. The download stays locked.');
+        return false;
+      }
+      if (verdict === 'expired') {
+        showError('This download link expired. Recover the purchase with the checkout email.');
+        setModal('recover');
+        return false;
+      }
+      if (verdict !== 'allowed') {
+        openCheckout(design, note);
+        return false;
+      }
+    }
+    return true;
+  };
+  const exportFile = async (type: 'step' | 'stl') => {
+    if (!canDownload || !result) return;
+    if (!(await authorize([result.parameters]))) return;
+    saveFile(result[type], filename(result.parameters, type));
+    track('download_completed');
+    setToast(`${type.toUpperCase()} downloaded`);
+  };
+  const continueCheckout = async () => {
+    if (!checkoutDesign) return;
+    try {
+      track('checkout_started');
+      location.assign(await startCheckout(checkoutDesign));
+    } catch (e) {
+      showError((e as Error).message);
+    }
+  };
+  const submitRecovery = async () => {
+    const proof = recoverProof.trim();
+    try {
+      const result = await recoverPurchase(
+        recoverEmail,
+        proof.startsWith('cs_') ? { sessionId: proof } : proof ? { code: proof } : {},
+      );
+      if (result.grants?.length) {
+        setModal(null);
+        setToast('Purchase restored. You can download the unlocked design.');
+        return;
+      }
+      showError(result.error || 'That purchase could not be verified.');
+    } catch (e) {
+      showError((e as Error).message);
     }
   };
   const saveSettings = () => {
@@ -365,7 +465,7 @@ export default function App() {
       );
       setToast('Settings saved');
     } catch (e) {
-      setError((e as Error).message);
+      showError((e as Error).message);
     }
   };
   const loadSettings = async (f: File | undefined) => {
@@ -386,10 +486,10 @@ export default function App() {
             }
           : null,
       );
-      setError('');
+      setErrorNotice(null);
       setToast('Settings loaded. Generate to update your pulley.');
     } catch (e) {
-      setError((e as Error).message);
+      showError((e as Error).message);
     } finally {
       if (file.current) file.current.value = '';
     }
@@ -400,7 +500,7 @@ export default function App() {
       if (pair && JSON.stringify(p) !== JSON.stringify(pair.drive))
         throw Error('Generate an updated pair before sharing, or switch to a single pulley.');
     } catch (e) {
-      setError((e as Error).message);
+      showError((e as Error).message);
       return;
     }
     try {
@@ -418,9 +518,24 @@ export default function App() {
   const reset = () => {
     setPair(null);
     setP({ ...DEFAULTS });
-    setError('');
+    setErrorNotice(null);
     setToast('8M starter settings restored');
   };
+  const screwSelect = (label: string, key: 'set_screw_size' | 'split_clamp_screw') => (
+    <label className="field">
+      <span>{label}</span>
+      <div className="select-shell">
+        <select aria-label={label} value={p[key]} onChange={(e) => set(key, e.target.value)}>
+          {(Object.keys(SCREWS) as ScrewSize[]).map((size) => (
+            <option key={size} value={size}>
+              {size} · {SCREWS[size].major} mm × {SCREWS[size].pitch} mm
+            </option>
+          ))}
+        </select>
+        <ChevronDown size={15} />
+      </div>
+    </label>
+  );
   return (
     <>
       <div className="world-background" aria-hidden="true">
@@ -621,7 +736,7 @@ export default function App() {
                     >
                       <span>
                         <SlidersHorizontal size={15} />
-                        Hub, lightening & clamp
+                        Hub, lightening, set screw & clamp
                       </span>
                       <ChevronRight size={15} className={advanced ? 'expanded' : ''} />
                     </button>
@@ -655,60 +770,73 @@ export default function App() {
                               hint: 'Material left at the bore and under the tooth roots.',
                             })}
                             <p className="field-hint">
-                              {webStatus ||
-                                (p.lightening === 'shell'
-                                  ? 'An annular pocket from the faces, leaving this wall at the bore and under the teeth.'
-                                  : 'Four radial ribs. The pockets between them stop at this wall.')}
+                              {p.lightening === 'shell'
+                                ? 'An annular pocket from the faces, leaving this wall at the bore and under the teeth.'
+                                : 'Four radial ribs. The pockets between them stop at this wall.'}
                             </p>
                           </>
                         )}
-                        <div className="profile-tabs bore-mode" role="group" aria-label="Clamp">
+                        <div className="profile-tabs bore-mode" role="group" aria-label="Set screw">
                           <button
                             type="button"
-                            className={p.clamp ? '' : 'selected'}
-                            aria-pressed={!p.clamp}
-                            onClick={() => {
-                              setP((old) => ({ ...old, clamp: false }));
-                              setError('');
-                            }}
+                            className={p.set_screw ? '' : 'selected'}
+                            aria-pressed={!p.set_screw}
+                            onClick={() => setP((old) => ({ ...old, set_screw: false }))}
                           >
-                            No clamp
+                            No set screw
                           </button>
                           <button
                             type="button"
-                            className={p.clamp ? 'selected' : ''}
-                            aria-pressed={p.clamp}
-                            onClick={() => {
-                              setP((old) => ({ ...old, clamp: true }));
-                              setError('');
-                            }}
+                            className={p.set_screw ? 'selected' : ''}
+                            aria-pressed={p.set_screw}
+                            onClick={() => setP((old) => ({ ...old, set_screw: true }))}
                           >
-                            Clamp
+                            Set screw
                           </button>
                         </div>
-                        {p.clamp && (
+                        {p.set_screw && (
                           <>
                             <div className="input-row">
-                              {field('clamp_height', 'Clamp height', { min: 0.2, max: 80 })}
-                              {field('clamp_thickness', 'Clamp wall', { min: 0.2, max: 40 })}
+                              {field('set_screw_height', 'Set screw height', { min: 0.2, max: 80 })}
+                              {field('set_screw_wall', 'Set screw wall', { min: 0.2, max: 40 })}
                             </div>
-                            <div className="select-shell">
-                              <select
-                                aria-label="Clamp screw"
-                                value={p.clamp_screw}
-                                onChange={(e) => set('clamp_screw', e.target.value)}
-                              >
-                                {(Object.keys(SCREWS) as (keyof typeof SCREWS)[]).map((size) => (
-                                  <option key={size} value={size}>
-                                    {size} · {SCREWS[size].major} mm × {SCREWS[size].pitch} mm
-                                  </option>
-                                ))}
-                              </select>
-                              <ChevronDown size={15} />
-                            </div>
+                            {screwSelect('Set screw size', 'set_screw_size')}
                             <p className="field-hint">
-                              {collarStatus ||
-                                'A collar on the hub side with one radial metric thread. The screw clamps on the shaft. If a hub is also set, one collar uses the larger diameter and the longer length.'}
+                              A radial metric thread on the hub side. On a D-shaft it bears on the +X
+                              flat. On a round bore it stays radial. If a hub is also set, one collar
+                              uses the larger diameter and the longer length.
+                            </p>
+                          </>
+                        )}
+                        <div className="profile-tabs bore-mode" role="group" aria-label="Split clamp">
+                          <button
+                            type="button"
+                            className={p.split_clamp ? '' : 'selected'}
+                            aria-pressed={!p.split_clamp}
+                            onClick={() => setP((old) => ({ ...old, split_clamp: false }))}
+                          >
+                            No split clamp
+                          </button>
+                          <button
+                            type="button"
+                            className={p.split_clamp ? 'selected' : ''}
+                            aria-pressed={p.split_clamp}
+                            onClick={() => setP((old) => ({ ...old, split_clamp: true }))}
+                          >
+                            Split clamp
+                          </button>
+                        </div>
+                        {p.split_clamp && (
+                          <>
+                            <div className="input-row">
+                              {field('split_clamp_length', 'Clamp length', { min: 0.2, max: 80 })}
+                              {field('split_clamp_wall', 'Wall thickness', { min: 0.2, max: 40 })}
+                            </div>
+                            {screwSelect('Screw size', 'split_clamp_screw')}
+                            <p className="field-hint">
+                              A shaft collar with a split and two ears. Ear size follows the screw:
+                              clearance hole in one ear, thread in the other. The collar bore matches
+                              the shaft.
                             </p>
                           </>
                         )}
@@ -721,16 +849,9 @@ export default function App() {
                     onGenerate={(selected) => {
                       setP(selected.drive);
                       setPair(selected);
-                      setError('');
                     }}
                   />
                 </div>
-                {error && (
-                  <p role="alert" className="error-message">
-                    <CircleHelp size={15} />
-                    {error}
-                  </p>
-                )}
               </div>
               <div className="generate-area">
                 <button className="generate-button" type="submit" disabled={busy || pairBusy}>
@@ -776,6 +897,13 @@ export default function App() {
                 onBusyChange={setPairBusy}
                 onBack={() => setPair(null)}
                 dirty={JSON.stringify(p) !== JSON.stringify(pair.drive)}
+                onError={showError}
+                beforeDownload={() =>
+                  authorize(
+                    [pair.drive, pair.driven],
+                    'A pair is two designs. $5 unlocks one profile and tooth count.',
+                  )
+                }
               />
             ) : (
               <>
@@ -845,16 +973,15 @@ export default function App() {
                     <span>FILE NAME</span>
                     <code title={filename(p, 'step')}>{filename(p, 'step')}</code>
                   </div>
+                  <button type="button" className="recover-link" onClick={() => setModal('recover')}>
+                    Recover a purchase
+                  </button>
                 </div>
               </>
             )}
           </section>
         </div>
         <div className="workspace-notes">
-          <span>
-            <ShieldCheck size={14} />
-            Your build stays in your browser.
-          </span>
           <button onClick={() => setModal('help')}>
             <CircleHelp size={14} />
             Profiles, fit & importing into Fusion <ArrowUpRight size={12} />
@@ -866,11 +993,66 @@ export default function App() {
           Source & licenses
         </a>
       </footer>
+      {errorNotice && (
+        <div key={errorNotice.id} className="error-toast" role="alert">
+          <p>{errorNotice.text}</p>
+          <button type="button" onClick={() => setErrorNotice(null)}>
+            Dismiss
+          </button>
+        </div>
+      )}
       {toast && (
         <div className="toast glass" role="status">
           <Check size={16} />
           {toast}
         </div>
+      )}
+      {modal === 'checkout' && checkoutDesign && (
+        <Modal title="Unlock this design" onClose={() => setModal(null)}>
+          <p className="pay-price">$5</p>
+          <p>
+            One profile and tooth count ({profileLabel(checkoutDesign.profile)}, {checkoutDesign.teeth}{' '}
+            teeth), including STEP and STL. Download it again anytime. For 7 days you can change the
+            bore, D-shaft flat, and clearance on this design.
+          </p>
+          {checkoutNote && <p>{checkoutNote}</p>}
+          <button className="download-button" type="button" onClick={continueCheckout}>
+            Continue to checkout
+          </button>
+        </Modal>
+      )}
+      {modal === 'recover' && (
+        <Modal title="Recover a purchase" onClose={() => setModal(null)}>
+          <p>
+            Enter the email Stripe collected. Add the Checkout session id (cs_…) or a recovery code.
+            An email by itself does not unlock a design.
+          </p>
+          <label className="field">
+            <span>Email</span>
+            <div className="input-shell">
+              <input
+                type="email"
+                aria-label="Checkout email"
+                value={recoverEmail}
+                onChange={(e) => setRecoverEmail(e.target.value)}
+                required
+              />
+            </div>
+          </label>
+          <label className="field">
+            <span>Session id or code</span>
+            <div className="input-shell">
+              <input
+                aria-label="Checkout session id or recovery code"
+                value={recoverProof}
+                onChange={(e) => setRecoverProof(e.target.value)}
+              />
+            </div>
+          </label>
+          <button className="download-button" type="button" onClick={submitRecovery}>
+            Verify purchase
+          </button>
+        </Modal>
       )}
       {modal === 'help' && (
         <Modal title="How it works" onClose={() => setModal(null)}>
@@ -882,8 +1064,8 @@ export default function App() {
                 <p>
                   Choose the profile printed on your belt, then set the tooth count, belt width, and
                   bore. For a D-shaft, switch the bore to D-shaft and set the diameter and the flat.
-                  Extra space adds clearance across the whole face. Shell or fin lightening and the
-                  clamp are under Hub, lightening & clamp.
+                  Extra space adds clearance across the whole face. Shell or fin lightening, the set
+                  screw, and the split clamp are under Hub, lightening, set screw & clamp.
                 </p>
               </div>
             </li>

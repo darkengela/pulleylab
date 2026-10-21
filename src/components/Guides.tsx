@@ -154,7 +154,8 @@ export function DownloadGuide() {
     >
       <p>
         After you generate an HTD timing pulley, the HTD pulley generator can download a STEP file
-        or an STL file. The solid is built in the browser. Dimensions are not uploaded.
+        or an STL file. The solid is built in the browser. A purchase saves that design so the
+        download can be unlocked; STEP and STL are still created on your device.
       </p>
       <h2>STEP for CAD</h2>
       <p>
