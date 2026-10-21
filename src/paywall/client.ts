@@ -10,6 +10,18 @@ export type StoredGrant = { token: string; designId: string };
 export type DownloadVerdict = 'allowed' | 'locked' | 'offline' | 'expired';
 type GrantPayload = { profile: string; teeth: number; token: string; designId: string };
 
+// Back-forward cache restores this document with checkout still "opening".
+// Clear that in-flight flag when the page is frozen and when that frozen page
+// returns. A stored unlock lives in sessionStorage and is not an input here.
+export function nextCheckoutBusy(
+  busy: boolean,
+  event: { type: string; persisted: boolean },
+): boolean {
+  if (event.type === 'pagehide') return false;
+  if (event.type === 'pageshow' && event.persisted) return false;
+  return busy;
+}
+
 export function readGrants(): Record<string, StoredGrant> {
   try {
     const raw = sessionStorage.getItem(STORAGE);

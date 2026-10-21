@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { Link } from 'react-router-dom';
 import {
   ArrowDownToLine,
@@ -38,7 +39,13 @@ import {
 } from './cad/parameters';
 import type { Parameters, Profile, ScrewSize } from './cad/parameters';
 import type { PulleyResult } from './cad/model';
-import { claimSession, recoverPurchase, startCheckout, verifyDownload } from './paywall/client';
+import {
+  claimSession,
+  nextCheckoutBusy,
+  recoverPurchase,
+  startCheckout,
+  verifyDownload,
+} from './paywall/client';
 type NumberKey = Exclude<
   keyof Parameters,
   | 'profile'
@@ -449,6 +456,18 @@ export default function App() {
     })();
     return () => {
       stop = true;
+    };
+  }, []);
+  useEffect(() => {
+    const resetPendingCheckout = (event: PageTransitionEvent) => {
+      // Commit before pagehide freezes this document, and as soon as a frozen one is shown.
+      flushSync(() => setCheckoutBusy((busy) => nextCheckoutBusy(busy, event)));
+    };
+    window.addEventListener('pagehide', resetPendingCheckout);
+    window.addEventListener('pageshow', resetPendingCheckout);
+    return () => {
+      window.removeEventListener('pagehide', resetPendingCheckout);
+      window.removeEventListener('pageshow', resetPendingCheckout);
     };
   }, []);
   const field = (

@@ -3,7 +3,7 @@ import Stripe from 'stripe';
 import { describe, expect, it } from 'vitest';
 import { SCHEMA_SQL, schemaStatements } from '../api/db';
 import { DEFAULTS } from '../src/cad/parameters';
-import { startCheckout } from '../src/paywall/client';
+import { nextCheckoutBusy, startCheckout } from '../src/paywall/client';
 import {
   accessDecision,
   accessFromStoredOrder,
@@ -217,5 +217,18 @@ describe('paywall decisions', () => {
   it('uses the server price and ignores a client price', () => {
     expect(checkoutLine('price_test_123')).toEqual({ price: 'price_test_123', quantity: 1 });
     expect(checkoutLine('price_test_123')).not.toHaveProperty('amount');
+  });
+
+  it('clears an in-flight checkout when the back-forward cache freezes or restores the page', () => {
+    expect(nextCheckoutBusy(true, { type: 'pagehide', persisted: true })).toBe(false);
+    expect(nextCheckoutBusy(true, { type: 'pagehide', persisted: false })).toBe(false);
+    expect(nextCheckoutBusy(true, { type: 'pageshow', persisted: true })).toBe(false);
+    expect(nextCheckoutBusy(false, { type: 'pageshow', persisted: true })).toBe(false);
+  });
+
+  it('leaves the checkout flag alone on a normal load', () => {
+    expect(nextCheckoutBusy(true, { type: 'pageshow', persisted: false })).toBe(true);
+    expect(nextCheckoutBusy(false, { type: 'pageshow', persisted: false })).toBe(false);
+    expect(nextCheckoutBusy(true, { type: 'focus', persisted: true })).toBe(true);
   });
 });
