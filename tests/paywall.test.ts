@@ -1,5 +1,7 @@
+import { readFileSync } from 'node:fs';
 import Stripe from 'stripe';
 import { describe, expect, it } from 'vitest';
+import { SCHEMA_SQL, schemaStatements } from '../api/db';
 import { DEFAULTS } from '../src/cad/parameters';
 import { startCheckout } from '../src/paywall/client';
 import {
@@ -186,6 +188,14 @@ describe('paywall decisions', () => {
       'connect ECONNREFUSED the database',
     );
     expect(checkoutErrorMessage(Error('   '))).toBe('Checkout could not be started.');
+  });
+
+  it('applies the same tables as schema.sql', () => {
+    const file = readFileSync(new URL('../schema.sql', import.meta.url), 'utf8');
+    expect(schemaStatements(SCHEMA_SQL)).toEqual(schemaStatements(file));
+    expect(schemaStatements(SCHEMA_SQL).some((statement) => statement.includes('CREATE TABLE IF NOT EXISTS designs'))).toBe(
+      true,
+    );
   });
 
   it('shows the server checkout error instead of a generic fallback', async () => {
