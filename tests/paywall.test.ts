@@ -1,6 +1,7 @@
 import Stripe from 'stripe';
 import { describe, expect, it } from 'vitest';
 import { DEFAULTS } from '../src/cad/parameters';
+import { startCheckout } from '../src/paywall/client';
 import {
   accessDecision,
   accessFromStoredOrder,
@@ -185,6 +186,22 @@ describe('paywall decisions', () => {
       'connect ECONNREFUSED the database',
     );
     expect(checkoutErrorMessage(Error('   '))).toBe('Checkout could not be started.');
+  });
+
+  it('shows the server checkout error instead of a generic fallback', async () => {
+    const original = globalThis.fetch;
+    globalThis.fetch = async () =>
+      new Response(JSON.stringify({ error: 'Stripe refused to open checkout.' }), {
+        status: 502,
+        headers: { 'content-type': 'application/json' },
+      });
+    try {
+      await expect(startCheckout({ ...DEFAULTS, profile: 'GT5', teeth: 120 })).rejects.toThrow(
+        'Stripe refused to open checkout.',
+      );
+    } finally {
+      globalThis.fetch = original;
+    }
   });
 
   it('uses the server price and ignores a client price', () => {
