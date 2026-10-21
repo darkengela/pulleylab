@@ -310,7 +310,7 @@ function sector(
       .threePointsArcTo(at(inner, a0), at(inner, mid))
       .close()
       .sketchOnPlane('XY', [0, 0, z0])
-      .extrude(height),
+      .extrude(height) as Shape3D,
   );
 }
 
@@ -343,7 +343,7 @@ function clampTools(
           .lineTo([outerHalf, screw.radial])
           .lineTo([innerHalf, -0.05])
           .close()
-          .sketchOnPlane(plane),
+          .sketchOnPlane(plane) as never,
       { withContact: true },
     );
   } catch {
