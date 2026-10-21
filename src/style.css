@@ -2308,3 +2308,291 @@ footer a:hover {
     padding-top: 6px;
   }
 }
+
+body:has(.tool-bar) {
+  overflow: hidden;
+  height: 100dvh;
+}
+body .tool-bar {
+  position: fixed;
+  top: 10px;
+  left: 10px;
+  right: 10px;
+  z-index: 6;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px 18px;
+  padding: 10px 12px;
+  overflow: visible;
+  max-height: 42vh;
+}
+body .tool-bar .brand-link {
+  align-self: center;
+  flex: 0 0 auto;
+}
+body .tool-group {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 0 0 auto;
+  min-width: 0;
+}
+body .tool-group > h2 {
+  margin: 0;
+  font-size: 10px;
+  font-weight: 550;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #9a9a9a;
+}
+body .tool-row {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+body .tool-details {
+  flex: 1 1 100%;
+}
+body .tool-bar .field {
+  margin: 0;
+  min-width: 88px;
+  flex: 0 0 auto;
+}
+body .tool-bar .field > span,
+body .tool-bar .live-od {
+  font-size: 10px;
+}
+body .tool-bar .input-shell,
+body .tool-bar .select-shell {
+  min-height: 34px;
+}
+body .tool-bar .profile-tabs.bore-mode {
+  width: auto;
+  flex: 0 0 auto;
+}
+body .tool-bar .profile-tabs.bore-mode button {
+  min-height: 34px;
+  padding: 0 10px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+body .tool-bar .bore-diagram {
+  width: 132px;
+  height: 78px;
+  flex: 0 0 auto;
+}
+body .tool-bar .live-od {
+  margin: 0;
+  min-height: 34px;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 0 2px 6px;
+}
+body .tool-popover-button,
+body .tool-generate .cancel-button {
+  min-height: 34px;
+  border-radius: 8px;
+  padding: 0 12px;
+  color: #e4e4e4;
+  background: #ffffff10;
+  border: 1px solid #ffffff22;
+  white-space: nowrap;
+}
+body .tool-generate {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+body .tool-generate .generate-button {
+  width: auto;
+  min-height: 40px;
+  white-space: nowrap;
+}
+body .tool-generate .cancel-button {
+  width: auto;
+  padding: 6px 10px;
+  font-size: 11px;
+}
+body .tool-icons {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+  align-self: flex-end;
+}
+body .tool-popover {
+  position: fixed;
+  top: var(--chrome-top, 140px);
+  left: max(16px, calc(50vw - 220px));
+  width: min(460px, calc(100vw - 32px));
+  max-height: min(68vh, 640px);
+  overflow: auto;
+  z-index: 7;
+  padding: 14px;
+  border-radius: 14px;
+}
+body .tool-popover .ratio-planner > summary {
+  display: none;
+}
+body .viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  height: auto;
+  min-height: 0;
+  background: none;
+}
+body .render-host {
+  inset: 0;
+}
+body .viewer-top {
+  top: var(--chrome-top, 140px);
+  left: 188px;
+  right: 360px;
+  z-index: 2;
+}
+body .viewer-dock {
+  position: fixed;
+  left: 12px;
+  top: var(--chrome-top, 140px);
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  width: 156px;
+  padding: 10px;
+  border-radius: 14px;
+  max-height: calc(100dvh - var(--chrome-top, 140px) - 72px);
+  overflow: auto;
+}
+body .viewer-dock .view-tabs,
+body .viewer-dock .viewer-tools,
+body .viewer-dock .display-mode-control {
+  position: static;
+  transform: none;
+  left: auto;
+  right: auto;
+  top: auto;
+  bottom: auto;
+  width: 100%;
+  box-shadow: none;
+}
+body .viewer-dock .view-tabs {
+  display: flex;
+}
+body .viewer-dock .viewer-tools {
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  background: none;
+  padding: 0;
+}
+body .viewer-dock .display-mode-control {
+  padding: 0 8px;
+}
+body .viewer-dock .display-mode-control select {
+  width: 100%;
+}
+body .viewer-dock .viewer-caption h2 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 550;
+  line-height: 1.3;
+}
+body .viewer-dock .status-pill {
+  align-self: flex-start;
+}
+body .viewer-dock .finish-picker {
+  flex-wrap: wrap;
+  gap: 6px;
+}
+body .viewer-hint {
+  margin: 0;
+  color: #8f8f8f;
+  font-size: 10px;
+  line-height: 1.4;
+}
+body .export-dock {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 4;
+  width: min(340px, calc(100vw - 32px));
+  border-radius: 14px;
+  overflow: hidden;
+}
+body .export-dock .dimension-grid {
+  grid-template-columns: 1fr 1fr;
+  padding: 12px 8px;
+  border: 0;
+}
+body .export-dock .dimension-grid strong {
+  font-size: 16px;
+}
+body .export-dock .export-section {
+  padding: 8px 14px 14px;
+}
+body .site-footer {
+  position: fixed;
+  left: 180px;
+  bottom: 14px;
+  z-index: 4;
+  margin: 0;
+  padding: 0;
+  width: auto;
+  max-width: calc(100vw - 560px);
+  border: 0;
+  background: transparent;
+  justify-content: flex-start;
+  gap: 14px;
+  pointer-events: auto;
+}
+body .site-footer a,
+body .site-footer button {
+  color: #9a9a9a;
+  font-size: 11px;
+}
+body .site-footer a:hover,
+body .site-footer button:hover {
+  color: #ececec;
+}
+body .error-toast {
+  top: var(--chrome-top, 140px);
+}
+@media (max-width: 720px) {
+  body .tool-bar {
+    max-height: 46vh;
+    overflow: auto;
+  }
+  body .viewer-top {
+    left: 16px;
+    right: 16px;
+    top: auto;
+    bottom: 88px;
+  }
+  body .site-footer {
+    left: 12px;
+    right: 12px;
+    max-width: none;
+    bottom: 6px;
+    flex-wrap: wrap;
+  }
+  body .viewer-dock {
+    top: var(--chrome-top, 46vh);
+    bottom: auto;
+    max-height: 22vh;
+  }
+  body .export-dock {
+    left: 8px;
+    right: 8px;
+    width: auto;
+    bottom: 28px;
+    max-height: 24vh;
+    overflow: auto;
+  }
+}

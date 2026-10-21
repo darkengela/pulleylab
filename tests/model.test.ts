@@ -3,12 +3,13 @@ import initOpenCascade from 'replicad-opencascadejs';
 import { setOC } from 'replicad';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { makeCylinder, measureShapeVolumeProperties, measureVolume } from 'replicad';
+import { makeBox, makeCylinder, measureShapeVolumeProperties, measureVolume } from 'replicad';
 import { createPulley, generateFiles } from '../src/cad/model';
 import {
   DEFAULTS,
   cylindersCollide,
   dimensions,
+  featuresCollide,
   filename,
   lighteningStatus,
   parseBuild,
@@ -192,6 +193,16 @@ describe('GT, larger HTD, lightening, and clamp solids', () => {
     });
     expect(clamped.volume).toBeGreaterThan(plain.volume + 40);
     expect(clamped.shape.solids).toHaveLength(1);
+    const againstFace = makeBox([5, -1, -2], [7, 1, -0.2]);
+    const pastCollar = makeBox([5, -1, -30], [7, 1, -22]);
+    const faceHit = clamped.shape.intersect(againstFace);
+    const farHit = clamped.shape.intersect(pastCollar);
+    expect(measureVolume(faceHit)).toBeGreaterThan(0.2);
+    expect(measureVolume(farHit)).toBeLessThan(0.05);
+    faceHit.delete();
+    farHit.delete();
+    againstFace.delete();
+    pastCollar.delete();
     const both = createPulley({
       ...DEFAULTS,
       flanges: 'none',
@@ -207,6 +218,26 @@ describe('GT, larger HTD, lightening, and clamp solids', () => {
       split_clamp_screw: 'M4',
     });
     expect(both.shape.solids).toHaveLength(1);
+    const colliding = featuresCollide({
+      ...DEFAULTS,
+      bore: 0,
+      set_screw: true,
+      set_screw_size: 'M6',
+      set_screw_height: 10,
+      set_screw_wall: 1,
+      split_clamp: true,
+      split_clamp_length: 10,
+      split_clamp_wall: 0.2,
+      split_clamp_screw: 'M6',
+    });
+    expect(colliding).toMatch(/same space/);
+    expect(
+      featuresCollide({
+        ...DEFAULTS,
+        set_screw: true,
+        split_clamp: true,
+      }),
+    ).toBe('');
     for (const result of [screwed, plain, clamped, both]) result.shape.delete();
   }, 30000);
 });

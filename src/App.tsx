@@ -5,15 +5,12 @@ import {
   ArrowUpRight,
   Check,
   ChevronDown,
-  ChevronRight,
   CircleHelp,
   Download,
   FolderOpen,
   Link2,
   LoaderCircle,
   RotateCcw,
-  Settings2,
-  SlidersHorizontal,
   X,
 } from 'lucide-react';
 import type { FormEvent, ReactNode } from 'react';
@@ -211,7 +208,7 @@ export default function App() {
     [checkoutNote, setCheckoutNote] = useState(''),
     [recoverEmail, setRecoverEmail] = useState(''),
     [recoverProof, setRecoverProof] = useState(''),
-    [advanced, setAdvanced] = useState(false);
+    [plannerOpen, setPlannerOpen] = useState(false);
   const form = useRef<HTMLFormElement>(null),
     file = useRef<HTMLInputElement>(null),
     worker = useRef<Worker | null>(null),
@@ -299,6 +296,20 @@ export default function App() {
     }, 90000);
     w.postMessage(settings);
   }
+  useEffect(() => {
+    const bar = form.current;
+    if (!bar) return;
+    const apply = () => {
+      document.documentElement.style.setProperty(
+        '--chrome-top',
+        `${Math.ceil(bar.getBoundingClientRect().height) + 22}px`,
+      );
+    };
+    apply();
+    const observer = new ResizeObserver(apply);
+    observer.observe(bar);
+    return () => observer.disconnect();
+  }, []);
   useEffect(() => {
     const openSharedBuild = () => {
       if (location.hash.startsWith('#p=')) location.reload();
@@ -543,383 +554,300 @@ export default function App() {
         <div className="light-field" />
         <div className="background-scrim" />
       </div>
-      <header className="site-header">
+      <form id="ratio-requirements" hidden onSubmit={(e) => e.preventDefault()} />
+      <form ref={form} className="tool-bar glass" onSubmit={generate}>
         <a href={location.pathname} className="brand-link" aria-label="PulleyLab home">
           <Logo />
         </a>
-        <nav className="toolbar-nav" aria-label="Main navigation">
-          <a href="#workspace" className="nav-active">
-            Generator
-          </a>
-          <button type="button" onClick={() => setModal('help')}>
-            How it works
-          </button>
-          <Link to="/htd-profiles">Profiles</Link>
-          <Link to="/d-shaft">D-shaft</Link>
-          <Link to="/download">Download</Link>
-        </nav>
-        <div className="toolbar-actions">
-          <button className="button glass share-button" type="button" onClick={share}>
-            <Link2 size={15} />
-            <span>Share build</span>
-          </button>
-          <button type="button" onClick={saveSettings}>
-            <Download size={13} />
-            Save
-          </button>
-          <button type="button" onClick={() => file.current?.click()}>
-            <FolderOpen size={13} />
-            Load
-          </button>
-          <button type="button" onClick={reset}>
-            <RotateCcw size={13} />
-            Reset
-          </button>
+        <div className="tool-group">
+          <h2>Pulley type</h2>
+          <div className="select-shell">
+            <select
+              aria-label="Belt profile"
+              value={p.profile}
+              onChange={(e) => set('profile', e.target.value as Profile)}
+            >
+              <optgroup label="HTD">
+                {(Object.keys(PROFILES) as Profile[])
+                  .filter((id) => PROFILES[id].family === 'HTD')
+                  .map((id) => (
+                    <option key={id} value={id}>
+                      HTD {id}
+                    </option>
+                  ))}
+              </optgroup>
+              <optgroup label="GT">
+                {(Object.keys(PROFILES) as Profile[])
+                  .filter((id) => PROFILES[id].family === 'GT')
+                  .map((id) => (
+                    <option key={id} value={id}>
+                      {id} · {PROFILES[id].pitch} mm
+                    </option>
+                  ))}
+              </optgroup>
+            </select>
+            <ChevronDown size={15} />
+          </div>
         </div>
-      </header>
-      <form id="ratio-requirements" hidden onSubmit={(e) => e.preventDefault()} />
-      <main id="workspace">
-        <div className="page-intro">
-          <h1>Timing pulley generator</h1>
-          <p>
-            Design an HTD or GT timing pulley, preview the solid, and download STEP or STL. It runs
-            in the browser.
-          </p>
-        </div>
-        <div className="workspace-grid">
-          <aside className="controls-panel glass">
-            <div className="panel-title">
-              <div>
-                <Settings2 size={18} />
-                <h2>Build your pulley</h2>
+        <div className="tool-group tool-details">
+          <h2>Type details</h2>
+          <div className="tool-row">
+            {field('teeth', 'Teeth', { min: 12, max: 240, step: 1, unit: false })}
+            {field('belt_width', 'Belt width', { min: 0.5, max: 200 })}
+            {field('clearance', 'Clearance', {
+              max: 10,
+              hint: 'Total extra space across the face; not per side.',
+            })}
+            <label className="field">
+              <span>Flanges</span>
+              <div className="select-shell">
+                <select
+                  aria-label="Flange arrangement"
+                  value={p.flanges}
+                  onChange={(e) => set('flanges', e.target.value)}
+                >
+                  <option value="both">Both sides</option>
+                  <option value="bottom">Bottom only</option>
+                  <option value="none">No flanges</option>
+                </select>
+                <ChevronDown size={15} />
               </div>
-              <div
-                className="live-od"
-                aria-live="polite"
-                title={`Tooth-tip OD. ${p.flanges !== 'none' && Number.isFinite(d.flange) ? `Flange OD: ${d.flange.toFixed(2)} mm.` : ''}`}
-              >
-                <span>OD · tooth tips</span>
-                <output aria-label="Live pulley outside diameter">
-                  {Number.isFinite(d.outside) ? d.outside.toFixed(2) : '—'} <small>mm</small>
-                </output>
+            </label>
+            {p.flanges !== 'none' &&
+              field('flange_thickness', 'Thickness', { min: 0.2, max: 15 })}
+            {p.flanges !== 'none' &&
+              field('flange_overhang', 'Overhang', {
+                min: 0.2,
+                max: 20,
+                hint: 'Radial distance beyond the tooth tips.',
+              })}
+            {p.flanges !== 'none' && field('chamfer', 'Chamfer', { max: 5 })}
+            {field('hub_diameter', 'Hub diameter')}
+            {field('hub_length', 'Hub length', {
+              max: 100,
+              hint: 'Extends from the bottom. Leave at 0 to omit the hub.',
+            })}
+            <label className="field">
+              <span>Lightening</span>
+              <div className="select-shell">
+                <select
+                  aria-label="Lightening"
+                  value={p.lightening}
+                  onChange={(e) => set('lightening', e.target.value)}
+                >
+                  <option value="off">Solid web</option>
+                  <option value="shell">Shell</option>
+                  <option value="fins">Fins</option>
+                </select>
+                <ChevronDown size={15} />
               </div>
+            </label>
+            {p.lightening !== 'off' &&
+              field('wall', 'Minimum wall', {
+                min: 0.2,
+                max: 40,
+                hint: 'Material left at the bore and under the tooth roots.',
+              })}
+            <div
+              className="live-od"
+              aria-live="polite"
+              title={`Tooth-tip OD. ${p.flanges !== 'none' && Number.isFinite(d.flange) ? `Flange OD: ${d.flange.toFixed(2)} mm.` : ''}`}
+            >
+              <span>OD</span>
+              <output aria-label="Live pulley outside diameter">
+                {Number.isFinite(d.outside) ? d.outside.toFixed(2) : '—'} <small>mm</small>
+              </output>
             </div>
-            <form ref={form} onSubmit={generate}>
-              <div className="control-fields">
-                <section className="control-section">
-                  <div className="section-label">
-                    <span>01</span>
-                    <h3>Tooth profile</h3>
-                  </div>
-                  <div className="select-shell">
-                    <select
-                      aria-label="Belt profile"
-                      value={p.profile}
-                      onChange={(e) => set('profile', e.target.value as Profile)}
-                    >
-                      <optgroup label="HTD">
-                        {(Object.keys(PROFILES) as Profile[])
-                          .filter((id) => PROFILES[id].family === 'HTD')
-                          .map((id) => (
-                            <option key={id} value={id}>
-                              HTD {id}
-                            </option>
-                          ))}
-                      </optgroup>
-                      <optgroup label="GT">
-                        {(Object.keys(PROFILES) as Profile[])
-                          .filter((id) => PROFILES[id].family === 'GT')
-                          .map((id) => (
-                            <option key={id} value={id}>
-                              {id} · {PROFILES[id].pitch} mm
-                            </option>
-                          ))}
-                      </optgroup>
-                    </select>
-                    <ChevronDown size={15} />
-                  </div>
-                  <div className="bore-block">
-                    <div>
-                      <div className="input-row">
-                        {field('teeth', 'Tooth count', { min: 12, max: 240, step: 1, unit: false })}
-                        {p.d_shaft
-                          ? field('d_diameter', 'D diameter', {
-                              hint: 'Full round diameter of the D-shaft, in millimeters.',
-                            })
-                          : field('bore', 'Bore diameter', { hint: 'Set to zero for a solid center.' })}
-                      </div>
-                      <div className="profile-tabs bore-mode" role="group" aria-label="Bore shape">
-                        <button
-                          type="button"
-                          className={p.d_shaft ? '' : 'selected'}
-                          aria-pressed={!p.d_shaft}
-                          onClick={() => setDShaft(false)}
-                        >
-                          Round bore
-                        </button>
-                        <button
-                          type="button"
-                          className={p.d_shaft ? 'selected' : ''}
-                          aria-pressed={p.d_shaft}
-                          onClick={() => setDShaft(true)}
-                        >
-                          D-shaft
-                        </button>
-                      </div>
-                      {p.d_shaft &&
-                        field('d_flat', 'Flat', {
-                          hint: 'Distance from the flat face to the opposite point on the circle.',
-                        })}
-                    </div>
-                    <BoreDiagram
-                      dShaft={p.d_shaft}
-                      diameter={p.d_shaft ? p.d_diameter : p.bore}
-                      flat={p.d_flat}
-                    />
-                  </div>
-                  {p.d_shaft && (
-                    <p className="field-hint">
-                      Greater than 0 and less than the diameter. An 8 mm D-shaft with a 7 mm flat is
-                      a full 8 mm circle with one flat. The flat faces +X.
-                    </p>
-                  )}
-                </section>
-                <section className="control-section">
-                  <div className="section-label">
-                    <span>02</span>
-                    <h3>Belt & clearance</h3>
-                  </div>
-                  <div className="input-row">
-                    {field('belt_width', 'Belt width', { min: 0.5, max: 200 })}
-                    {field('clearance', 'Extra space', {
-                      max: 10,
-                      hint: 'Total extra space across the face; not per side.',
-                    })}
-                  </div>
-                </section>
-                <section className="control-section">
-                  <div className="section-label">
-                    <span>03</span>
-                    <h3>Flanges</h3>
-                  </div>
-                  <div className="select-shell">
-                    <select
-                      aria-label="Flange arrangement"
-                      value={p.flanges}
-                      onChange={(e) => set('flanges', e.target.value)}
-                    >
-                      <option value="both">Both sides</option>
-                      <option value="bottom">Bottom only</option>
-                      <option value="none">No flanges</option>
-                    </select>
-                    <ChevronDown size={15} />
-                  </div>
-                  {p.flanges !== 'none' && (
-                    <div className="input-row">
-                      {field('flange_thickness', 'Thickness', { min: 0.2, max: 15 })}
-                      {field('flange_overhang', 'Overhang', {
-                        min: 0.2,
-                        max: 20,
-                        hint: 'Radial distance beyond the tooth tips.',
-                      })}
-                    </div>
-                  )}
-                </section>
-                <div className={`advanced-controls ${advanced ? 'is-expanded' : ''}`}>
-                  <section className="advanced-section">
-                    <button
-                      type="button"
-                      className="advanced-toggle"
-                      aria-expanded={advanced}
-                      aria-controls="advanced-options"
-                      onClick={() => setAdvanced(!advanced)}
-                    >
-                      <span>
-                        <SlidersHorizontal size={15} />
-                        Hub, lightening, set screw & clamp
-                      </span>
-                      <ChevronRight size={15} className={advanced ? 'expanded' : ''} />
-                    </button>
-                    {advanced && (
-                      <div id="advanced-options" className="advanced-fields">
-                        {p.flanges !== 'none' && field('chamfer', 'Flange chamfer', { max: 5 })}
-                        <div className="input-row">
-                          {field('hub_diameter', 'Hub diameter')}
-                          {field('hub_length', 'Hub length', { max: 100 })}
-                        </div>
-                        <p className="field-hint">
-                          A hub extends from the bottom. Leave length at 0 to omit it.
-                        </p>
-                        <div className="select-shell">
-                          <select
-                            aria-label="Lightening"
-                            value={p.lightening}
-                            onChange={(e) => set('lightening', e.target.value)}
-                          >
-                            <option value="off">Solid web</option>
-                            <option value="shell">Shell</option>
-                            <option value="fins">Fins</option>
-                          </select>
-                          <ChevronDown size={15} />
-                        </div>
-                        {p.lightening !== 'off' && (
-                          <>
-                            {field('wall', 'Minimum wall', {
-                              min: 0.2,
-                              max: 40,
-                              hint: 'Material left at the bore and under the tooth roots.',
-                            })}
-                            <p className="field-hint">
-                              {p.lightening === 'shell'
-                                ? 'An annular pocket from the faces, leaving this wall at the bore and under the teeth.'
-                                : 'Four radial ribs. The pockets between them stop at this wall.'}
-                            </p>
-                          </>
-                        )}
-                        <div className="profile-tabs bore-mode" role="group" aria-label="Set screw">
-                          <button
-                            type="button"
-                            className={p.set_screw ? '' : 'selected'}
-                            aria-pressed={!p.set_screw}
-                            onClick={() => setP((old) => ({ ...old, set_screw: false }))}
-                          >
-                            No set screw
-                          </button>
-                          <button
-                            type="button"
-                            className={p.set_screw ? 'selected' : ''}
-                            aria-pressed={p.set_screw}
-                            onClick={() => setP((old) => ({ ...old, set_screw: true }))}
-                          >
-                            Set screw
-                          </button>
-                        </div>
-                        {p.set_screw && (
-                          <>
-                            <div className="input-row">
-                              {field('set_screw_height', 'Set screw height', { min: 0.2, max: 80 })}
-                              {field('set_screw_wall', 'Set screw wall', { min: 0.2, max: 40 })}
-                            </div>
-                            {screwSelect('Set screw size', 'set_screw_size')}
-                            <p className="field-hint">
-                              A radial metric thread on the hub side. On a D-shaft it bears on the +X
-                              flat. On a round bore it stays radial. If a hub is also set, one collar
-                              uses the larger diameter and the longer length.
-                            </p>
-                          </>
-                        )}
-                        <div className="profile-tabs bore-mode" role="group" aria-label="Split clamp">
-                          <button
-                            type="button"
-                            className={p.split_clamp ? '' : 'selected'}
-                            aria-pressed={!p.split_clamp}
-                            onClick={() => setP((old) => ({ ...old, split_clamp: false }))}
-                          >
-                            No split clamp
-                          </button>
-                          <button
-                            type="button"
-                            className={p.split_clamp ? 'selected' : ''}
-                            aria-pressed={p.split_clamp}
-                            onClick={() => setP((old) => ({ ...old, split_clamp: true }))}
-                          >
-                            Split clamp
-                          </button>
-                        </div>
-                        {p.split_clamp && (
-                          <>
-                            <div className="input-row">
-                              {field('split_clamp_length', 'Clamp length', { min: 0.2, max: 80 })}
-                              {field('split_clamp_wall', 'Wall thickness', { min: 0.2, max: 40 })}
-                            </div>
-                            {screwSelect('Screw size', 'split_clamp_screw')}
-                            <p className="field-hint">
-                              A shaft collar with a split and two ears. Ear size follows the screw:
-                              clearance hole in one ear, thread in the other. The collar bore matches
-                              the shaft.
-                            </p>
-                          </>
-                        )}
-                      </div>
-                    )}
-                  </section>
-                  <RatioPlanner
-                    parameters={p}
-                    busy={busy || pairBusy}
-                    onGenerate={(selected) => {
-                      setP(selected.drive);
-                      setPair(selected);
-                    }}
-                  />
-                </div>
-              </div>
-              <div className="generate-area">
-                <button className="generate-button" type="submit" disabled={busy || pairBusy}>
-                  {busy ? <LoaderCircle size={17} className="spin" /> : <BoxIcon />}
-                  <span>
-                    {pairBusy
-                      ? 'Generating pair…'
-                      : busy
-                        ? 'Generating pulley…'
-                        : 'Generate pulley'}
-                  </span>
-                  {!busy && <ArrowUpRight size={17} />}
-                </button>
-                {(busy || pairBusy) && (
-                  <button
-                    className="cancel-button"
-                    type="button"
-                    onClick={() => {
-                      cancel();
-                      setPair(null);
-                      setPairBusy(false);
-                    }}
-                  >
-                    Cancel generation
-                  </button>
-                )}
-              </div>
-              <input
-                ref={file}
-                type="file"
-                hidden
-                accept="application/json,.json"
-                onChange={(e) => loadSettings(e.target.files?.[0])}
-              />
-            </form>
-          </aside>
-          <section className="model-workspace" aria-label="Pulley preview and downloads">
-            {pair ? (
-              <PairWorkspace
-                pair={pair}
+            <button
+              type="button"
+              className="tool-popover-button"
+              aria-expanded={plannerOpen}
+              onClick={() => setPlannerOpen(!plannerOpen)}
+            >
+              Drive ratio
+            </button>
+          </div>
+        </div>
+        <div className="tool-group">
+          <h2>Retainer</h2>
+          <div className="tool-row">
+            <div className="profile-tabs bore-mode" role="group" aria-label="Bore shape">
+              <button
+                type="button"
+                className={p.d_shaft ? '' : 'selected'}
+                aria-pressed={!p.d_shaft}
+                onClick={() => setDShaft(false)}
+              >
+                Round
+              </button>
+              <button
+                type="button"
+                className={p.d_shaft ? 'selected' : ''}
+                aria-pressed={p.d_shaft}
+                onClick={() => setDShaft(true)}
+              >
+                D-shaft
+              </button>
+            </div>
+            {p.d_shaft
+              ? field('d_diameter', 'Diameter', {
+                  hint: 'Full round diameter of the D-shaft, in millimeters.',
+                })
+              : field('bore', 'Bore', { hint: 'Set to zero for a solid center.' })}
+            {p.d_shaft &&
+              field('d_flat', 'Flat', {
+                hint: 'Distance from the flat face to the opposite point on the circle.',
+              })}
+            <BoreDiagram
+              dShaft={p.d_shaft}
+              diameter={p.d_shaft ? p.d_diameter : p.bore}
+              flat={p.d_flat}
+            />
+            <div className="profile-tabs bore-mode" role="group" aria-label="Set screw">
+              <button
+                type="button"
+                className={p.set_screw ? '' : 'selected'}
+                aria-pressed={!p.set_screw}
+                onClick={() => setP((old) => ({ ...old, set_screw: false }))}
+              >
+                Off
+              </button>
+              <button
+                type="button"
+                className={p.set_screw ? 'selected' : ''}
+                aria-pressed={p.set_screw}
+                onClick={() => setP((old) => ({ ...old, set_screw: true }))}
+              >
+                Set screw
+              </button>
+            </div>
+            {p.set_screw && field('set_screw_height', 'Height', { min: 0.2, max: 80 })}
+            {p.set_screw && field('set_screw_wall', 'Wall', { min: 0.2, max: 40 })}
+            {p.set_screw && screwSelect('Size', 'set_screw_size')}
+          </div>
+        </div>
+        <div className="tool-group">
+          <h2>Clamp</h2>
+          <div className="tool-row">
+            <div className="profile-tabs bore-mode" role="group" aria-label="Split clamp">
+              <button
+                type="button"
+                className={p.split_clamp ? '' : 'selected'}
+                aria-pressed={!p.split_clamp}
+                onClick={() => setP((old) => ({ ...old, split_clamp: false }))}
+              >
+                Off
+              </button>
+              <button
+                type="button"
+                className={p.split_clamp ? 'selected' : ''}
+                aria-pressed={p.split_clamp}
+                onClick={() => setP((old) => ({ ...old, split_clamp: true }))}
+              >
+                Split clamp
+              </button>
+            </div>
+            {p.split_clamp && field('split_clamp_length', 'Length', { min: 0.2, max: 80 })}
+            {p.split_clamp && field('split_clamp_wall', 'Wall', { min: 0.2, max: 40 })}
+            {p.split_clamp && screwSelect('Screw', 'split_clamp_screw')}
+          </div>
+        </div>
+        <div className="tool-generate">
+          <button className="generate-button" type="submit" disabled={busy || pairBusy}>
+            {busy ? <LoaderCircle size={17} className="spin" /> : <BoxIcon />}
+            <span>{pairBusy ? 'Generating pair…' : busy ? 'Generating…' : 'Generate'}</span>
+            {!busy && <ArrowUpRight size={17} />}
+          </button>
+          {(busy || pairBusy) && (
+            <button
+              className="cancel-button"
+              type="button"
+              onClick={() => {
+                cancel();
+                setPair(null);
+                setPairBusy(false);
+              }}
+            >
+              Cancel
+            </button>
+          )}
+        </div>
+        <div className="tool-icons">
+          <button className="icon-button" type="button" onClick={share} aria-label="Share build" title="Share">
+            <Link2 size={16} />
+          </button>
+          <button className="icon-button" type="button" onClick={saveSettings} aria-label="Save" title="Save">
+            <Download size={16} />
+          </button>
+          <button
+            className="icon-button"
+            type="button"
+            onClick={() => file.current?.click()}
+            aria-label="Load"
+            title="Load"
+          >
+            <FolderOpen size={16} />
+          </button>
+          <button className="icon-button" type="button" onClick={reset} aria-label="Reset" title="Reset">
+            <RotateCcw size={16} />
+          </button>
+        </div>
+        <input
+          ref={file}
+          type="file"
+          hidden
+          accept="application/json,.json"
+          onChange={(e) => loadSettings(e.target.files?.[0])}
+        />
+      </form>
+      {plannerOpen && (
+        <div className="tool-popover glass">
+          <RatioPlanner
+            open
+            parameters={p}
+            busy={busy || pairBusy}
+            onGenerate={(selected) => {
+              setP(selected.drive);
+              setPair(selected);
+              setPlannerOpen(false);
+            }}
+          />
+        </div>
+      )}
+      <main id="workspace">
+        <section className="model-workspace" aria-label="Pulley preview and downloads">
+          {pair ? (
+            <PairWorkspace
+              pair={pair}
+              appearance={appearance}
+              onAppearanceChange={setAppearance}
+              onBusyChange={setPairBusy}
+              onBack={() => setPair(null)}
+              dirty={JSON.stringify(p) !== JSON.stringify(pair.drive)}
+              onError={showError}
+              beforeDownload={() =>
+                authorize(
+                  [pair.drive, pair.driven],
+                  'A pair is two designs. $5 unlocks one profile and tooth count.',
+                )
+              }
+            />
+          ) : (
+            <>
+              <Viewer
+                mesh={result?.mesh ?? null}
                 appearance={appearance}
                 onAppearanceChange={setAppearance}
-                onBusyChange={setPairBusy}
-                onBack={() => setPair(null)}
-                dirty={JSON.stringify(p) !== JSON.stringify(pair.drive)}
-                onError={showError}
-                beforeDownload={() =>
-                  authorize(
-                    [pair.drive, pair.driven],
-                    'A pair is two designs. $5 unlocks one profile and tooth count.',
-                  )
+                busy={busy}
+                stage={stage}
+                dirty={!!result && dirty}
+                label={
+                  result
+                    ? `${profileLabel(result.parameters.profile)} · ${result.parameters.teeth} teeth`
+                    : `${profileLabel(p.profile)} · ${p.teeth || '—'} teeth`
                 }
               />
-            ) : (
-              <>
-                <Viewer
-                  mesh={result?.mesh ?? null}
-                  appearance={appearance}
-                  onAppearanceChange={setAppearance}
-                  busy={busy}
-                  stage={stage}
-                  dirty={!!result && dirty}
-                  label={
-                    result
-                      ? `${profileLabel(result.parameters.profile)} · ${result.parameters.teeth} teeth`
-                      : `${profileLabel(p.profile)} · ${p.teeth || '—'} teeth`
-                  }
-                />
+              <div className="export-dock glass">
                 <div className="dimension-grid">
                   {[
                     { label: 'Pitch diameter', value: d.pitch },
@@ -977,18 +905,18 @@ export default function App() {
                     Recover a purchase
                   </button>
                 </div>
-              </>
-            )}
-          </section>
-        </div>
-        <div className="workspace-notes">
-          <button onClick={() => setModal('help')}>
-            <CircleHelp size={14} />
-            Profiles, fit & importing into Fusion <ArrowUpRight size={12} />
-          </button>
-        </div>
+              </div>
+            </>
+          )}
+        </section>
       </main>
-      <footer>
+      <footer className="site-footer">
+        <button type="button" onClick={() => setModal('help')}>
+          How it works
+        </button>
+        <Link to="/htd-profiles">Profiles</Link>
+        <Link to="/d-shaft">D-shaft</Link>
+        <Link to="/download">Download</Link>
         <a href="/NOTICE.txt" target="_blank" rel="noreferrer">
           Source & licenses
         </a>
@@ -1064,8 +992,9 @@ export default function App() {
                 <p>
                   Choose the profile printed on your belt, then set the tooth count, belt width, and
                   bore. For a D-shaft, switch the bore to D-shaft and set the diameter and the flat.
-                  Extra space adds clearance across the whole face. Shell or fin lightening, the set
-                  screw, and the split clamp are under Hub, lightening, set screw & clamp.
+                  Extra space adds clearance across the whole face. Chamfer, hub, and lightening sit
+                  with the type details. The retainer holds the D-shaft and set screw. The clamp is
+                  the split collar.
                 </p>
               </div>
             </li>

@@ -8,10 +8,12 @@ export default function RatioPlanner({
   parameters,
   busy,
   onGenerate,
+  open = false,
 }: {
   parameters: Parameters;
   busy: boolean;
   onGenerate: (pair: PulleyPair) => void;
+  open?: boolean;
 }) {
   const [q, setQ] = useState({ ...DEFAULT_RATIO, drivenBore: parameters.bore }),
     [selection, setSelection] = useState('');
@@ -47,7 +49,7 @@ export default function RatioPlanner({
     </label>
   );
   return (
-    <details className="advanced-section ratio-planner">
+    <details className="advanced-section ratio-planner" open={open || undefined}>
       <summary>
         Drive ratio planner <span>Advanced</span>
       </summary>

@@ -192,7 +192,7 @@ export function createPulley(raw: unknown) {
         body.fuse(keep(makeCylinder(boss.diameter / 2, boss.length, [0, 0, bottom - boss.length]))),
       );
     body = lighten(body, p, d, bottom, keep);
-    if (p.split_clamp) body = keep(body.fuse(splitClampBody(p, bottom, boss.length, keep)));
+    if (p.split_clamp) body = keep(body.fuse(splitClampBody(p, bottom, keep)));
     const hole = holeDiameter(p);
     const clampLength = p.split_clamp ? p.split_clamp_length : 0;
     if (hole > 0) {
@@ -215,7 +215,7 @@ export function createPulley(raw: unknown) {
       body = keep(body.cut(pilot));
       body = keep(body.cut(groove));
     }
-    if (p.split_clamp) body = cutSplitClamp(body, p, bottom, boss.length, keep);
+    if (p.split_clamp) body = cutSplitClamp(body, p, bottom, keep);
     const solids = body.solids;
     solids.forEach(keep);
     const oc = getOC();
@@ -374,15 +374,10 @@ function internalThread(
   if (groove.solids.length !== 1) throw Error('The thread could not be built for this screw.');
   return [pilot, keep(groove)] as const;
 }
-/** Solid collar and ears, before the shaft bore is cut. Sits entirely beyond the boss. */
-function splitClampBody(
-  p: Parameters,
-  bottom: number,
-  bossLength: number,
-  keep: <T extends Deletable>(x: T) => T,
-) {
+/** Solid collar and ears, before the shaft bore is cut. Starts on the pulley face. */
+function splitClampBody(p: Parameters, bottom: number, keep: <T extends Deletable>(x: T) => T) {
   const layout = splitClampLayout(p);
-  const z1 = bottom - bossLength;
+  const z1 = bottom;
   const z0 = z1 - p.split_clamp_length;
   let clamp: Shape3D = keep(makeCylinder(layout.outerR, p.split_clamp_length, [0, 0, z0]));
   const half = layout.slot / 2;
@@ -400,11 +395,10 @@ function cutSplitClamp(
   body: Shape3D,
   p: Parameters,
   bottom: number,
-  bossLength: number,
   keep: <T extends Deletable>(x: T) => T,
 ) {
   const layout = splitClampLayout(p);
-  const z1 = bottom - bossLength;
+  const z1 = bottom;
   const z0 = z1 - p.split_clamp_length;
   const half = layout.slot / 2;
   const slot = keep(

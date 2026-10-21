@@ -121,7 +121,7 @@ export function profileLabel(id: Profile) {
  * One bottom boss. A set screw uses the hub side: the collar is the longer of
  * the hub length and the set-screw height, and the wider of the hub diameter
  * and the bore plus two set-screw walls. Set screw off keeps the hub as entered.
- * The split clamp is a separate collar beyond this boss.
+ * The split clamp is a separate collar that starts on this same face.
  */
 export function extension(p: Parameters) {
   if (!p.set_screw) return { length: p.hub_length, diameter: p.hub_diameter };
@@ -185,8 +185,7 @@ export function dimensions(p: Parameters) {
       p.belt_width +
       p.clearance +
       count * p.flange_thickness +
-      extension(p).length +
-      (p.split_clamp ? p.split_clamp_length : 0),
+      Math.max(extension(p).length, p.split_clamp ? p.split_clamp_length : 0),
     flange: outside + (count ? 2 * p.flange_overhang : 0),
   };
 }
@@ -242,20 +241,20 @@ export function cylindersCollide(
   return Math.hypot(a.y - b.y, a.z - b.z) < a.r + b.r - 1e-6;
 }
 /**
- * The split clamp is stacked beyond the set-screw boss. This reports when the
- * set-screw hole and the clamp bolt still intersect.
+ * Both features start at the pulley face. This reports when the set-screw hole
+ * and the clamp bolt still intersect.
  */
 export function featuresCollide(p: Parameters) {
   if (!p.set_screw || !p.split_clamp) return '';
   const layout = splitClampLayout(p);
   const set = SCREWS[p.set_screw_size];
-  const jointGap = p.set_screw_height / 2 + p.split_clamp_length / 2;
+  const boss = extension(p);
   const setScrew = {
     y: p.d_shaft ? 0 : holeDiameter(p) / 2,
-    z: jointGap,
+    z: boss.length - p.set_screw_height / 2,
     r: set.major / 2,
   };
-  const bolt = { y: layout.yCenter, z: 0, r: layout.clearance / 2 };
+  const bolt = { y: layout.yCenter, z: p.split_clamp_length / 2, r: layout.clearance / 2 };
   if (cylindersCollide(setScrew, bolt))
     return 'The set screw and the split clamp screw occupy the same space. Increase the set screw height or the clamp length, or turn one of them off.';
   return '';

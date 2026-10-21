@@ -172,7 +172,7 @@ export default function Viewer({
               : new THREE.Vector3(distance * 0.75, -distance * 0.95, distance * 0.74),
         );
         controls.target.set(0, 0, 0);
-        controls.minDistance = size * 0.7;
+        controls.minDistance = size * 0.08;
         controls.maxDistance = size * 8;
         controls.update();
       };
@@ -251,22 +251,6 @@ export default function Viewer({
   };
   return (
     <div className="viewer" data-display-mode={mode} data-finish={finish}>
-      <div className="viewer-top">
-        <div className="viewer-caption">
-          <h2>{label}</h2>
-          {selection}
-        </div>
-        <span className={`status-pill ${dirty ? 'is-dirty' : ''}`}>
-          <span className="status-light" />
-          {busy
-            ? 'Generating'
-            : dirty
-              ? 'Changes pending'
-              : mesh
-                ? 'Solid ready'
-                : 'Ready to build'}
-        </span>
-      </div>
       <div
         ref={host}
         className="render-host"
@@ -294,8 +278,22 @@ export default function Viewer({
           {stage}…
         </div>
       )}
-      <div className="viewer-view-controls">
-        <div className="view-tabs glass">
+      <div className="viewer-dock glass">
+        <div className="viewer-caption">
+          <h2>{label}</h2>
+          {selection}
+        </div>
+        <span className={`status-pill ${dirty ? 'is-dirty' : ''}`}>
+          <span className="status-light" />
+          {busy
+            ? 'Generating'
+            : dirty
+              ? 'Changes pending'
+              : mesh
+                ? 'Solid ready'
+                : 'Ready to build'}
+        </span>
+        <div className="view-tabs" role="tablist" aria-label="Camera view">
           <button
             className={view === 'perspective' ? 'active' : ''}
             onClick={() => changeView('perspective')}
@@ -318,7 +316,7 @@ export default function Viewer({
             Side
           </button>
         </div>
-        <label className="display-mode-control glass">
+        <label className="display-mode-control">
           <span>Display</span>
           <select
             aria-label="Display style"
@@ -334,53 +332,46 @@ export default function Viewer({
             <option value="clay">Clay</option>
           </select>
         </label>
-      </div>
-      <div className="viewer-tools glass">
-        <button title="Zoom in" aria-label="Zoom in" onClick={() => api.current?.zoom(0.85)}>
-          <ZoomIn size={17} />
-        </button>
-        <button title="Zoom out" aria-label="Zoom out" onClick={() => api.current?.zoom(1.18)}>
-          <ZoomOut size={17} />
-        </button>
-        <span />
-        <button
-          className={grid ? 'active' : ''}
-          aria-pressed={grid}
-          title="Show reference grid"
-          aria-label="Show reference grid"
-          onClick={() => {
-            setGrid(!grid);
-            api.current?.grid();
-          }}
-        >
-          <Grid2X2 size={17} />
-        </button>
-        <button
-          className={wire || mode === 'xray' || mode === 'wireframe' ? 'active' : ''}
-          aria-pressed={wire || mode === 'xray' || mode === 'wireframe'}
-          disabled={mode === 'xray' || mode === 'wireframe'}
-          title="Show edges"
-          aria-label="Show edges"
-          onClick={() => {
-            setWire(!wire);
-            api.current?.wire();
-          }}
-        >
-          <Scan size={17} />
-        </button>
-        <span />
-        <button
-          title="Reset view"
-          aria-label="Reset view"
-          onClick={() => changeView('perspective')}
-        >
-          <RotateCcw size={16} />
-        </button>
-      </div>
-      <div className="viewer-bottom">
-        <span>
-          Drag to orbit <span className="divider-dot">·</span> Scroll to zoom
-        </span>
+        <div className="viewer-tools">
+          <button title="Zoom in" aria-label="Zoom in" onClick={() => api.current?.zoom(0.85)}>
+            <ZoomIn size={17} />
+          </button>
+          <button title="Zoom out" aria-label="Zoom out" onClick={() => api.current?.zoom(1.18)}>
+            <ZoomOut size={17} />
+          </button>
+          <button
+            className={grid ? 'active' : ''}
+            aria-pressed={grid}
+            title="Show reference grid"
+            aria-label="Show reference grid"
+            onClick={() => {
+              setGrid(!grid);
+              api.current?.grid();
+            }}
+          >
+            <Grid2X2 size={17} />
+          </button>
+          <button
+            className={wire || mode === 'xray' || mode === 'wireframe' ? 'active' : ''}
+            aria-pressed={wire || mode === 'xray' || mode === 'wireframe'}
+            disabled={mode === 'xray' || mode === 'wireframe'}
+            title="Show edges"
+            aria-label="Show edges"
+            onClick={() => {
+              setWire(!wire);
+              api.current?.wire();
+            }}
+          >
+            <Scan size={17} />
+          </button>
+          <button
+            title="Reset view"
+            aria-label="Reset view"
+            onClick={() => changeView('perspective')}
+          >
+            <RotateCcw size={16} />
+          </button>
+        </div>
         <div className="finish-picker" aria-label="Preview material" hidden={mode !== 'solid'}>
           <span>Finish</span>
           {Object.entries(FINISHES).map(([id, c]) => (
@@ -397,6 +388,7 @@ export default function Viewer({
             />
           ))}
         </div>
+        <p className="viewer-hint">Drag to orbit · scroll to zoom</p>
       </div>
     </div>
   );

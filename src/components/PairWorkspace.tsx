@@ -180,6 +180,7 @@ export default function PairWorkspace({
           </div>
         }
       />
+      <div className="export-dock glass">
       <div className="dimension-grid pair-metrics">
         {[
           { label: 'Actual ratio', value: `${Number(pair.ratio.toFixed(4))}:1` },
@@ -234,6 +235,7 @@ export default function PairWorkspace({
           <span>2 STEP + 2 STL + SETTINGS</span>
           <code>{pairFilename(pair)}</code>
         </div>
+      </div>
       </div>
     </>
   );
