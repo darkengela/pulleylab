@@ -6,6 +6,7 @@ import {
   accessFromStoredOrder,
   applyPayment,
   checkoutBlockedMessage,
+  checkoutErrorMessage,
   checkoutLine,
   fitAdjustmentOnly,
   fulfillmentAction,
@@ -165,6 +166,25 @@ describe('paywall decisions', () => {
         STRIPE_PRICE_ID: 'price_x',
       }),
     ).toBeNull();
+  });
+
+  it('returns the checkout failure and strips credentials', () => {
+    expect(checkoutErrorMessage(Error('Checkout could not be started.'))).toBe(
+      'Checkout could not be started.',
+    );
+    expect(
+      checkoutErrorMessage(
+        Error(
+          "The provided key 'rk_live_examplekeyvalue' does not have the required permissions. Having the 'checkout_session_write' permission would allow this request to continue.",
+        ),
+      ),
+    ).toBe(
+      "The provided key 'a restricted key' does not have the required permissions. Having the 'checkout_session_write' permission would allow this request to continue.",
+    );
+    expect(checkoutErrorMessage(Error('connect ECONNREFUSED postgres://user:secret@host/db'))).toBe(
+      'connect ECONNREFUSED the database',
+    );
+    expect(checkoutErrorMessage(Error('   '))).toBe('Checkout could not be started.');
   });
 
   it('uses the server price and ignores a client price', () => {

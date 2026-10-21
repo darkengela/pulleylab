@@ -97,6 +97,16 @@ export function checkoutLine(priceId: string) {
 const CHECKOUT_ENV = ['DATABASE_URL', 'STRIPE_SECRET_KEY', 'STRIPE_PRICE_ID'] as const;
 const PAYMENT_ENV = [...CHECKOUT_ENV, 'STRIPE_WEBHOOK_SECRET'] as const;
 
+/** Stripe and database failures stay specific. Credentials and connection strings do not. */
+export function checkoutErrorMessage(error: unknown): string {
+  const raw = error instanceof Error ? error.message.trim() : '';
+  const message = raw
+    .replace(/(?:rk|sk)_(?:live|test)_[A-Za-z0-9]+/g, 'a restricted key')
+    .replace(/whsec_[A-Za-z0-9]+/g, 'a webhook secret')
+    .replace(/postgres(?:ql)?:\/\/\S+/gi, 'the database');
+  return message || 'Checkout could not be started.';
+}
+
 /** Names only. Checkout cannot start until the first three are set. */
 export function checkoutBlockedMessage(env: Record<string, string | undefined>) {
   if (CHECKOUT_ENV.every((name) => env[name])) return null;

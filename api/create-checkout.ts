@@ -1,6 +1,6 @@
 import Stripe from 'stripe';
 import { validate } from '../src/cad/parameters.js';
-import { checkoutBlockedMessage, checkoutLine } from '../src/paywall/access.js';
+import { checkoutBlockedMessage, checkoutErrorMessage, checkoutLine } from '../src/paywall/access.js';
 import { sql } from './db.js';
 
 function originOf(request: Request) {
@@ -64,7 +64,9 @@ export async function POST(request: Request) {
     await db('UPDATE orders SET stripe_session_id = $1 WHERE id = $2', [session.id, orderId]);
     if (!session.url) return Response.json({ error: 'Checkout could not be started.' }, { status: 502 });
     return Response.json({ url: session.url });
-  } catch {
-    return Response.json({ error: 'Checkout could not be started.' }, { status: 502 });
+  } catch (error) {
+    const message = checkoutErrorMessage(error);
+    console.error('create-checkout failed', message);
+    return Response.json({ error: message }, { status: 502 });
   }
 }
