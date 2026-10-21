@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   ArrowDownToLine,
@@ -208,9 +208,16 @@ export default function App() {
     [checkoutNote, setCheckoutNote] = useState(''),
     [recoverEmail, setRecoverEmail] = useState(''),
     [recoverProof, setRecoverProof] = useState(''),
-    [plannerOpen, setPlannerOpen] = useState(false);
+    [plannerOpen, setPlannerOpen] = useState(false),
+    [task, setTask] = useState<null | 'details' | 'retainer' | 'clamp'>(null),
+    [sheetBox, setSheetBox] = useState({ left: 12, top: 68, width: 392 });
   const form = useRef<HTMLFormElement>(null),
     file = useRef<HTMLInputElement>(null),
+    detailsTab = useRef<HTMLButtonElement>(null),
+    retainerTab = useRef<HTMLButtonElement>(null),
+    clampTab = useRef<HTMLButtonElement>(null),
+    ratioTab = useRef<HTMLButtonElement>(null),
+    sheet = useRef<HTMLDivElement>(null),
     worker = useRef<Worker | null>(null),
     timeout = useRef<ReturnType<typeof setTimeout> | undefined>(undefined),
     run = useRef(0),
@@ -311,6 +318,60 @@ export default function App() {
     return () => observer.disconnect();
   }, []);
   useEffect(() => {
+    if (!task && !plannerOpen) return;
+    const close = () => {
+      setTask(null);
+      setPlannerOpen(false);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') close();
+    };
+    const onPointer = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (form.current?.contains(target) || sheet.current?.contains(target)) return;
+      close();
+    };
+    document.addEventListener('keydown', onKey);
+    document.addEventListener('pointerdown', onPointer);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('pointerdown', onPointer);
+    };
+  }, [task, plannerOpen]);
+  useLayoutEffect(() => {
+    const button =
+      task === 'details'
+        ? detailsTab.current
+        : task === 'retainer'
+          ? retainerTab.current
+          : task === 'clamp'
+            ? clampTab.current
+            : plannerOpen
+              ? ratioTab.current
+              : null;
+    if (!button) return;
+    const place = () => {
+      const rect = button.getBoundingClientRect();
+      const barBottom = form.current?.getBoundingClientRect().bottom ?? rect.bottom;
+      const margin = 12;
+      const width = Math.min(plannerOpen && !task ? 440 : 392, window.innerWidth - margin * 2);
+      const left = Math.max(margin, Math.min(rect.left, window.innerWidth - margin - width));
+      const top = barBottom + 8;
+      setSheetBox((old) =>
+        old.left === left && old.top === top && old.width === width ? old : { left, top, width },
+      );
+    };
+    place();
+    const bar = form.current;
+    bar?.addEventListener('scroll', place, { passive: true });
+    window.addEventListener('resize', place);
+    return () => {
+      bar?.removeEventListener('scroll', place);
+      window.removeEventListener('resize', place);
+    };
+  }, [task, plannerOpen]);
+  useEffect(() => {
     const openSharedBuild = () => {
       if (location.hash.startsWith('#p=')) location.reload();
     };
@@ -386,6 +447,7 @@ export default function App() {
       </span>
       <div className="input-shell">
         <input
+          form="build"
           type="number"
           name={key}
           aria-label={label}
@@ -536,7 +598,7 @@ export default function App() {
     <label className="field">
       <span>{label}</span>
       <div className="select-shell">
-        <select aria-label={label} value={p[key]} onChange={(e) => set(key, e.target.value)}>
+        <select form="build" aria-label={label} value={p[key]} onChange={(e) => set(key, e.target.value)}>
           {(Object.keys(SCREWS) as ScrewSize[]).map((size) => (
             <option key={size} value={size}>
               {size} · {SCREWS[size].major} mm × {SCREWS[size].pitch} mm
@@ -547,6 +609,13 @@ export default function App() {
       </div>
     </label>
   );
+  const openTask = (next: 'details' | 'retainer' | 'clamp') => {
+    setPlannerOpen(false);
+    setTask((current) => (current === next ? null : next));
+  };
+  const detailStatus = `${Number.isFinite(p.teeth) ? p.teeth : '—'}T · ${
+    Number.isFinite(p.belt_width) ? `${mm(p.belt_width)} mm` : '—'
+  }`;
   return (
     <>
       <div className="world-background" aria-hidden="true">
@@ -555,18 +624,16 @@ export default function App() {
         <div className="background-scrim" />
       </div>
       <form id="ratio-requirements" hidden onSubmit={(e) => e.preventDefault()} />
-      <form ref={form} className="tool-bar glass" onSubmit={generate}>
+      <form ref={form} id="build" className="tool-bar glass" onSubmit={generate}>
         <a href={location.pathname} className="brand-link" aria-label="PulleyLab home">
           <Logo />
         </a>
-        <div className="tool-group">
-          <h2>Pulley type</h2>
-          <div className="select-shell">
-            <select
-              aria-label="Belt profile"
-              value={p.profile}
-              onChange={(e) => set('profile', e.target.value as Profile)}
-            >
+        <div className="select-shell tool-profile">
+          <select
+            aria-label="Pulley type"
+            value={p.profile}
+            onChange={(e) => set('profile', e.target.value as Profile)}
+          >
               <optgroup label="HTD">
                 {(Object.keys(PROFILES) as Profile[])
                   .filter((id) => PROFILES[id].family === 'HTD')
@@ -588,170 +655,64 @@ export default function App() {
             </select>
             <ChevronDown size={15} />
           </div>
+        <div className="task-tabs" role="group" aria-label="Pulley settings">
+          <button
+            ref={detailsTab}
+            type="button"
+            className="task-tab"
+            aria-expanded={task === 'details'}
+            aria-controls={task === 'details' ? 'task-panel' : undefined}
+            onClick={() => openTask('details')}
+          >
+            Details
+            <small>{detailStatus}</small>
+          </button>
+          <button
+            ref={retainerTab}
+            type="button"
+            className="task-tab"
+            aria-expanded={task === 'retainer'}
+            aria-controls={task === 'retainer' ? 'task-panel' : undefined}
+            onClick={() => openTask('retainer')}
+          >
+            Retainer
+            <small>{p.d_shaft ? 'D-shaft' : 'Round'}</small>
+          </button>
+          <button
+            ref={clampTab}
+            type="button"
+            className="task-tab"
+            aria-expanded={task === 'clamp'}
+            aria-controls={task === 'clamp' ? 'task-panel' : undefined}
+            onClick={() => openTask('clamp')}
+          >
+            Clamp
+            <small>{p.split_clamp ? 'On' : 'Off'}</small>
+          </button>
         </div>
-        <div className="tool-group tool-details">
-          <h2>Type details</h2>
-          <div className="tool-row">
-            {field('teeth', 'Teeth', { min: 12, max: 240, step: 1, unit: false })}
-            {field('belt_width', 'Belt width', { min: 0.5, max: 200 })}
-            {field('clearance', 'Clearance', {
-              max: 10,
-              hint: 'Total extra space across the face; not per side.',
-            })}
-            <label className="field">
-              <span>Flanges</span>
-              <div className="select-shell">
-                <select
-                  aria-label="Flange arrangement"
-                  value={p.flanges}
-                  onChange={(e) => set('flanges', e.target.value)}
-                >
-                  <option value="both">Both sides</option>
-                  <option value="bottom">Bottom only</option>
-                  <option value="none">No flanges</option>
-                </select>
-                <ChevronDown size={15} />
-              </div>
-            </label>
-            {p.flanges !== 'none' &&
-              field('flange_thickness', 'Thickness', { min: 0.2, max: 15 })}
-            {p.flanges !== 'none' &&
-              field('flange_overhang', 'Overhang', {
-                min: 0.2,
-                max: 20,
-                hint: 'Radial distance beyond the tooth tips.',
-              })}
-            {p.flanges !== 'none' && field('chamfer', 'Chamfer', { max: 5 })}
-            {field('hub_diameter', 'Hub diameter')}
-            {field('hub_length', 'Hub length', {
-              max: 100,
-              hint: 'Extends from the bottom. Leave at 0 to omit the hub.',
-            })}
-            <label className="field">
-              <span>Lightening</span>
-              <div className="select-shell">
-                <select
-                  aria-label="Lightening"
-                  value={p.lightening}
-                  onChange={(e) => set('lightening', e.target.value)}
-                >
-                  <option value="off">Solid web</option>
-                  <option value="shell">Shell</option>
-                  <option value="fins">Fins</option>
-                </select>
-                <ChevronDown size={15} />
-              </div>
-            </label>
-            {p.lightening !== 'off' &&
-              field('wall', 'Minimum wall', {
-                min: 0.2,
-                max: 40,
-                hint: 'Material left at the bore and under the tooth roots.',
-              })}
-            <div
-              className="live-od"
-              aria-live="polite"
-              title={`Tooth-tip OD. ${p.flanges !== 'none' && Number.isFinite(d.flange) ? `Flange OD: ${d.flange.toFixed(2)} mm.` : ''}`}
-            >
-              <span>OD</span>
-              <output aria-label="Live pulley outside diameter">
-                {Number.isFinite(d.outside) ? d.outside.toFixed(2) : '—'} <small>mm</small>
-              </output>
-            </div>
-            <button
-              type="button"
-              className="tool-popover-button"
-              aria-expanded={plannerOpen}
-              onClick={() => setPlannerOpen(!plannerOpen)}
-            >
-              Drive ratio
-            </button>
-          </div>
+        <div
+          className="live-od"
+          aria-live="polite"
+          title={`Tooth-tip OD. ${p.flanges !== 'none' && Number.isFinite(d.flange) ? `Flange OD: ${d.flange.toFixed(2)} mm.` : ''}`}
+        >
+          <span>OD</span>
+          <output aria-label="Live pulley outside diameter">
+            {Number.isFinite(d.outside) ? d.outside.toFixed(2) : '—'} <small>mm</small>
+          </output>
         </div>
-        <div className="tool-group">
-          <h2>Retainer</h2>
-          <div className="tool-row">
-            <div className="profile-tabs bore-mode" role="group" aria-label="Bore shape">
-              <button
-                type="button"
-                className={p.d_shaft ? '' : 'selected'}
-                aria-pressed={!p.d_shaft}
-                onClick={() => setDShaft(false)}
-              >
-                Round
-              </button>
-              <button
-                type="button"
-                className={p.d_shaft ? 'selected' : ''}
-                aria-pressed={p.d_shaft}
-                onClick={() => setDShaft(true)}
-              >
-                D-shaft
-              </button>
-            </div>
-            {p.d_shaft
-              ? field('d_diameter', 'Diameter', {
-                  hint: 'Full round diameter of the D-shaft, in millimeters.',
-                })
-              : field('bore', 'Bore', { hint: 'Set to zero for a solid center.' })}
-            {p.d_shaft &&
-              field('d_flat', 'Flat', {
-                hint: 'Distance from the flat face to the opposite point on the circle.',
-              })}
-            <BoreDiagram
-              dShaft={p.d_shaft}
-              diameter={p.d_shaft ? p.d_diameter : p.bore}
-              flat={p.d_flat}
-            />
-            <div className="profile-tabs bore-mode" role="group" aria-label="Set screw">
-              <button
-                type="button"
-                className={p.set_screw ? '' : 'selected'}
-                aria-pressed={!p.set_screw}
-                onClick={() => setP((old) => ({ ...old, set_screw: false }))}
-              >
-                Off
-              </button>
-              <button
-                type="button"
-                className={p.set_screw ? 'selected' : ''}
-                aria-pressed={p.set_screw}
-                onClick={() => setP((old) => ({ ...old, set_screw: true }))}
-              >
-                Set screw
-              </button>
-            </div>
-            {p.set_screw && field('set_screw_height', 'Height', { min: 0.2, max: 80 })}
-            {p.set_screw && field('set_screw_wall', 'Wall', { min: 0.2, max: 40 })}
-            {p.set_screw && screwSelect('Size', 'set_screw_size')}
-          </div>
-        </div>
-        <div className="tool-group">
-          <h2>Clamp</h2>
-          <div className="tool-row">
-            <div className="profile-tabs bore-mode" role="group" aria-label="Split clamp">
-              <button
-                type="button"
-                className={p.split_clamp ? '' : 'selected'}
-                aria-pressed={!p.split_clamp}
-                onClick={() => setP((old) => ({ ...old, split_clamp: false }))}
-              >
-                Off
-              </button>
-              <button
-                type="button"
-                className={p.split_clamp ? 'selected' : ''}
-                aria-pressed={p.split_clamp}
-                onClick={() => setP((old) => ({ ...old, split_clamp: true }))}
-              >
-                Split clamp
-              </button>
-            </div>
-            {p.split_clamp && field('split_clamp_length', 'Length', { min: 0.2, max: 80 })}
-            {p.split_clamp && field('split_clamp_wall', 'Wall', { min: 0.2, max: 40 })}
-            {p.split_clamp && screwSelect('Screw', 'split_clamp_screw')}
-          </div>
-        </div>
+        <button
+          ref={ratioTab}
+          type="button"
+          className="tool-popover-button"
+          aria-expanded={plannerOpen}
+          aria-controls={plannerOpen ? 'task-panel' : undefined}
+          onClick={() => {
+            setTask(null);
+            setPlannerOpen((open) => !open);
+          }}
+        >
+          Drive ratio
+        </button>
         <div className="tool-generate">
           <button className="generate-button" type="submit" disabled={busy || pairBusy}>
             {busy ? <LoaderCircle size={17} className="spin" /> : <BoxIcon />}
@@ -800,18 +761,187 @@ export default function App() {
           onChange={(e) => loadSettings(e.target.files?.[0])}
         />
       </form>
-      {plannerOpen && (
-        <div className="tool-popover glass">
-          <RatioPlanner
-            open
-            parameters={p}
-            busy={busy || pairBusy}
-            onGenerate={(selected) => {
-              setP(selected.drive);
-              setPair(selected);
-              setPlannerOpen(false);
-            }}
-          />
+      {(task || plannerOpen) && (
+        <div
+          ref={sheet}
+          id="task-panel"
+          className="task-panel glass"
+          role="region"
+          aria-labelledby="task-panel-title"
+          style={{
+            left: sheetBox.left,
+            top: sheetBox.top,
+            width: sheetBox.width,
+            maxHeight: `min(60vh, calc(100dvh - ${Math.ceil(sheetBox.top + 12)}px))`,
+          }}
+        >
+          <h2 id="task-panel-title" className="task-panel-heading">
+            {task === 'details'
+              ? 'Details'
+              : task === 'retainer'
+                ? 'Retainer'
+                : task === 'clamp'
+                  ? 'Clamp'
+                  : 'Drive ratio'}
+          </h2>
+          {task === 'details' && (
+            <div className="panel-grid">
+              {field('teeth', 'Teeth', { min: 12, max: 240, step: 1, unit: false })}
+              {field('belt_width', 'Belt width', { min: 0.5, max: 200 })}
+              {field('clearance', 'Clearance', {
+                max: 10,
+                hint: 'Total extra space across the face; not per side.',
+              })}
+              <label className="field">
+                <span>Flanges</span>
+                <div className="select-shell">
+                  <select
+                    form="build"
+                    aria-label="Flange arrangement"
+                    value={p.flanges}
+                    onChange={(e) => set('flanges', e.target.value)}
+                  >
+                    <option value="both">Both sides</option>
+                    <option value="bottom">Bottom only</option>
+                    <option value="none">No flanges</option>
+                  </select>
+                  <ChevronDown size={15} />
+                </div>
+              </label>
+              {p.flanges !== 'none' &&
+                field('flange_thickness', 'Thickness', { min: 0.2, max: 15 })}
+              {p.flanges !== 'none' &&
+                field('flange_overhang', 'Overhang', {
+                  min: 0.2,
+                  max: 20,
+                  hint: 'Radial distance beyond the tooth tips.',
+                })}
+              {p.flanges !== 'none' && field('chamfer', 'Chamfer', { max: 5 })}
+              {field('hub_diameter', 'Hub diameter')}
+              {field('hub_length', 'Hub length', {
+                max: 100,
+                hint: 'Extends from the bottom. Leave at 0 to omit the hub.',
+              })}
+              <label className="field">
+                <span>Lightening</span>
+                <div className="select-shell">
+                  <select
+                    form="build"
+                    aria-label="Lightening"
+                    value={p.lightening}
+                    onChange={(e) => set('lightening', e.target.value)}
+                  >
+                    <option value="off">Solid web</option>
+                    <option value="shell">Shell</option>
+                    <option value="fins">Fins</option>
+                  </select>
+                  <ChevronDown size={15} />
+                </div>
+              </label>
+              {p.lightening !== 'off' &&
+                field('wall', 'Minimum wall', {
+                  min: 0.2,
+                  max: 40,
+                  hint: 'Material left at the bore and under the tooth roots.',
+                })}
+            </div>
+          )}
+          {task === 'retainer' && (
+            <div className="panel-grid">
+              <div className="profile-tabs bore-mode panel-span" role="group" aria-label="Bore shape">
+                <button
+                  type="button"
+                  className={p.d_shaft ? '' : 'selected'}
+                  aria-pressed={!p.d_shaft}
+                  onClick={() => setDShaft(false)}
+                >
+                  Round
+                </button>
+                <button
+                  type="button"
+                  className={p.d_shaft ? 'selected' : ''}
+                  aria-pressed={p.d_shaft}
+                  onClick={() => setDShaft(true)}
+                >
+                  D-shaft
+                </button>
+              </div>
+              {p.d_shaft
+                ? field('d_diameter', 'Diameter', {
+                    hint: 'Full round diameter of the D-shaft, in millimeters.',
+                  })
+                : field('bore', 'Bore', { hint: 'Set to zero for a solid center.' })}
+              {p.d_shaft &&
+                field('d_flat', 'Flat', {
+                  hint: 'Distance from the flat face to the opposite point on the circle.',
+                })}
+              <div className="panel-span">
+                <BoreDiagram
+                  dShaft={p.d_shaft}
+                  diameter={p.d_shaft ? p.d_diameter : p.bore}
+                  flat={p.d_flat}
+                />
+              </div>
+              <div className="profile-tabs bore-mode panel-span" role="group" aria-label="Set screw">
+                <button
+                  type="button"
+                  className={p.set_screw ? '' : 'selected'}
+                  aria-pressed={!p.set_screw}
+                  onClick={() => setP((old) => ({ ...old, set_screw: false }))}
+                >
+                  Off
+                </button>
+                <button
+                  type="button"
+                  className={p.set_screw ? 'selected' : ''}
+                  aria-pressed={p.set_screw}
+                  onClick={() => setP((old) => ({ ...old, set_screw: true }))}
+                >
+                  Set screw
+                </button>
+              </div>
+              {p.set_screw && field('set_screw_height', 'Height', { min: 0.2, max: 80 })}
+              {p.set_screw && field('set_screw_wall', 'Wall', { min: 0.2, max: 40 })}
+              {p.set_screw && screwSelect('Size', 'set_screw_size')}
+            </div>
+          )}
+          {task === 'clamp' && (
+            <div className="panel-grid">
+              <div className="profile-tabs bore-mode panel-span" role="group" aria-label="Split clamp">
+                <button
+                  type="button"
+                  className={p.split_clamp ? '' : 'selected'}
+                  aria-pressed={!p.split_clamp}
+                  onClick={() => setP((old) => ({ ...old, split_clamp: false }))}
+                >
+                  Off
+                </button>
+                <button
+                  type="button"
+                  className={p.split_clamp ? 'selected' : ''}
+                  aria-pressed={p.split_clamp}
+                  onClick={() => setP((old) => ({ ...old, split_clamp: true }))}
+                >
+                  Split clamp
+                </button>
+              </div>
+              {p.split_clamp && field('split_clamp_length', 'Length', { min: 0.2, max: 80 })}
+              {p.split_clamp && field('split_clamp_wall', 'Wall', { min: 0.2, max: 40 })}
+              {p.split_clamp && screwSelect('Screw', 'split_clamp_screw')}
+            </div>
+          )}
+          {plannerOpen && !task && (
+            <RatioPlanner
+              open
+              parameters={p}
+              busy={busy || pairBusy}
+              onGenerate={(selected) => {
+                setP(selected.drive);
+                setPair(selected);
+                setPlannerOpen(false);
+              }}
+            />
+          )}
         </div>
       )}
       <main id="workspace">

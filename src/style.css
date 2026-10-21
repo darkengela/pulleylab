@@ -2320,81 +2320,79 @@ body .tool-bar {
   right: 10px;
   z-index: 6;
   display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: 12px 18px;
-  padding: 10px 12px;
-  overflow: visible;
-  max-height: 42vh;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  border-radius: 14px;
+  scrollbar-width: thin;
+}
+body .tool-bar > * {
+  flex: 0 0 auto;
 }
 body .tool-bar .brand-link {
   align-self: center;
-  flex: 0 0 auto;
 }
-body .tool-group {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  flex: 0 0 auto;
-  min-width: 0;
-}
-body .tool-group > h2 {
-  margin: 0;
-  font-size: 10px;
-  font-weight: 550;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: #9a9a9a;
-}
-body .tool-row {
-  display: flex;
-  align-items: flex-end;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-body .tool-details {
-  flex: 1 1 100%;
-}
-body .tool-bar .field {
-  margin: 0;
-  min-width: 88px;
-  flex: 0 0 auto;
-}
-body .tool-bar .field > span,
-body .tool-bar .live-od {
-  font-size: 10px;
-}
-body .tool-bar .input-shell,
 body .tool-bar .select-shell {
-  min-height: 34px;
+  margin: 0;
 }
-body .tool-bar .profile-tabs.bore-mode {
-  width: auto;
-  flex: 0 0 auto;
+body .tool-bar .tool-profile {
+  width: 132px;
 }
-body .tool-bar .profile-tabs.bore-mode button {
-  min-height: 34px;
-  padding: 0 10px;
+body .tool-bar .select-shell select {
+  min-height: 36px;
+  height: 36px;
+  padding: 0 28px 0 10px;
   font-size: 12px;
+}
+body .tool-bar .select-shell > svg {
+  top: 50%;
+  margin-top: -7px;
+}
+body .task-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+body .task-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 10px;
+  border-radius: 9px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #e8e8e8;
+  font-size: 13px;
   white-space: nowrap;
 }
-body .tool-bar .bore-diagram {
-  width: 132px;
-  height: 78px;
-  flex: 0 0 auto;
+body .task-tab small {
+  color: #9a9a9a;
+  font-size: 11px;
+  font-weight: 450;
+}
+body .task-tab:hover,
+body .tool-popover-button:hover {
+  background: #ffffff12;
+}
+body .task-tab[aria-expanded='true'] {
+  background: #ffffff14;
+  border-color: #ffffff2e;
 }
 body .tool-bar .live-od {
   margin: 0;
-  min-height: 34px;
-  display: flex;
+  min-height: 0;
+  padding: 0 2px;
+  font-size: 10px;
   align-items: baseline;
-  gap: 6px;
-  padding: 0 2px 6px;
 }
 body .tool-popover-button,
 body .tool-generate .cancel-button {
-  min-height: 34px;
+  height: 36px;
+  min-height: 36px;
   border-radius: 8px;
   padding: 0 12px;
   color: #e4e4e4;
@@ -2402,40 +2400,106 @@ body .tool-generate .cancel-button {
   border: 1px solid #ffffff22;
   white-space: nowrap;
 }
+body .tool-popover-button[aria-expanded='true'] {
+  background: #ffffff18;
+  border-color: #ffffff33;
+}
 body .tool-generate {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  align-items: center;
   gap: 6px;
-  flex: 0 0 auto;
 }
 body .tool-generate .generate-button {
   width: auto;
-  min-height: 40px;
+  height: 36px;
+  min-height: 36px;
+  padding: 0 12px;
   white-space: nowrap;
 }
 body .tool-generate .cancel-button {
   width: auto;
-  padding: 6px 10px;
+  padding: 0 10px;
   font-size: 11px;
+}
+body .tool-bar .icon-button {
+  width: 32px;
+  height: 32px;
 }
 body .tool-icons {
   display: flex;
   gap: 4px;
   margin-left: auto;
-  align-self: flex-end;
+  align-self: center;
 }
-body .tool-popover {
+body .task-panel {
   position: fixed;
-  top: var(--chrome-top, 140px);
-  left: max(16px, calc(50vw - 220px));
-  width: min(460px, calc(100vw - 32px));
-  max-height: min(68vh, 640px);
-  overflow: auto;
   z-index: 7;
+  max-height: min(60vh, calc(100dvh - 24px));
+  overflow: auto;
+  overscroll-behavior: contain;
   padding: 14px;
   border-radius: 14px;
 }
-body .tool-popover .ratio-planner > summary {
+body .task-panel-heading {
+  margin: 0 0 12px;
+  font-size: 11px;
+  font-weight: 550;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #9a9a9a;
+}
+body .task-panel .panel-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 12px;
+  align-items: end;
+}
+body .task-panel .panel-span,
+body .task-panel .bore-diagram {
+  grid-column: 1 / -1;
+}
+body .task-panel .field {
+  margin: 0;
+  min-width: 0;
+}
+body .task-panel .field > span {
+  margin-bottom: 6px;
+}
+body .task-panel .select-shell {
+  margin: 0;
+}
+body .task-panel .input-shell,
+body .task-panel .select-shell select {
+  min-height: 36px;
+}
+body .task-panel .input-shell input {
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+body .task-panel .select-shell > svg {
+  top: 10px;
+}
+body .task-panel .profile-tabs.bore-mode {
+  width: auto;
+  margin: 0;
+}
+body .task-panel .profile-tabs.bore-mode button {
+  min-height: 34px;
+  padding: 0 10px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+body .task-panel .bore-diagram {
+  width: 100%;
+  height: 108px;
+}
+body .task-panel .ratio-planner {
+  margin: 0;
+  border: 0;
+  padding: 0;
+}
+body .task-panel .ratio-planner > summary {
   display: none;
 }
 body .viewer {
@@ -2564,10 +2628,20 @@ body .site-footer button:hover {
 body .error-toast {
   top: var(--chrome-top, 140px);
 }
+@media (max-width: 520px) {
+  body .task-panel .panel-grid {
+    grid-template-columns: 1fr;
+  }
+}
 @media (max-width: 720px) {
   body .tool-bar {
-    max-height: 46vh;
-    overflow: auto;
+    max-height: none;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+  body .task-panel .input-shell input,
+  body .task-panel .select-shell select {
+    font-size: 16px;
   }
   body .viewer-top {
     left: 16px;
@@ -2583,9 +2657,9 @@ body .error-toast {
     flex-wrap: wrap;
   }
   body .viewer-dock {
-    top: var(--chrome-top, 46vh);
+    top: var(--chrome-top, 72px);
     bottom: auto;
-    max-height: 22vh;
+    max-height: calc(100dvh - var(--chrome-top, 72px) - 220px);
   }
   body .export-dock {
     left: 8px;
