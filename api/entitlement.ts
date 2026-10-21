@@ -1,7 +1,7 @@
-import { validate, type Parameters } from '../src/cad/parameters';
-import { GRANT_MS, accessDecision, accessFromStoredOrder } from '../src/paywall/access';
-import { sql } from './db';
-import { hashGrant, newGrant } from './grant';
+import { validate, type Parameters } from '../src/cad/parameters.js';
+import { GRANT_MS, accessDecision, accessFromStoredOrder } from '../src/paywall/access.js';
+import { sql } from './db.js';
+import { hashGrant, newGrant } from './grant.js';
 
 type EntitlementRow = {
   id: string;

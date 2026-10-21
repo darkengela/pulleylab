@@ -1,8 +1,7 @@
 import Stripe from 'stripe';
-import { recoveryDecision } from '../src/paywall/access';
-import { sql } from './db';
-import { grantHashEquals, hashGrant, newGrant } from './grant';
-import { GRANT_MS } from '../src/paywall/access';
+import { GRANT_MS, recoveryDecision } from '../src/paywall/access.js';
+import { sql } from './db.js';
+import { grantHashEquals, hashGrant, newGrant } from './grant.js';
 
 type EntitlementRow = {
   id: string;

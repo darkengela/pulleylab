@@ -1006,8 +1006,11 @@ footer a:hover {
 }
 .error-toast {
   position: fixed;
+  inset: auto;
   top: 16px;
   left: 50%;
+  margin: 0;
+  height: auto;
   transform: translateX(-50%);
   z-index: 80;
   width: min(640px, calc(100vw - 24px));

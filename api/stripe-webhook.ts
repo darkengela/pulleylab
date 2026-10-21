@@ -1,6 +1,6 @@
 import Stripe from 'stripe';
-import { ADJUSTMENT_MS, fulfillmentAction, type PaymentFact } from '../src/paywall/access';
-import { sql } from './db';
+import { ADJUSTMENT_MS, fulfillmentAction, type PaymentFact } from '../src/paywall/access.js';
+import { sql } from './db.js';
 
 type StripeObject = Record<string, unknown> & {
   metadata?: Record<string, string> | null;

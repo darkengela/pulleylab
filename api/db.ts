@@ -6,6 +6,3 @@ export function sql() {
   return neon(url);
 }
 
-export function configured() {
-  return Boolean(process.env.DATABASE_URL && process.env.STRIPE_SECRET_KEY && process.env.STRIPE_PRICE_ID);
-}

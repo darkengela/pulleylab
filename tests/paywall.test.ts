@@ -5,6 +5,7 @@ import {
   accessDecision,
   accessFromStoredOrder,
   applyPayment,
+  checkoutBlockedMessage,
   checkoutLine,
   fitAdjustmentOnly,
   fulfillmentAction,
@@ -149,6 +150,21 @@ describe('paywall decisions', () => {
         sessionEmail: 'Buyer@Example.com',
       }),
     ).toBe('allow');
+  });
+
+  it('names the missing payment settings and does not invent a price', () => {
+    const missing = checkoutBlockedMessage({});
+    expect(missing).toContain('DATABASE_URL');
+    expect(missing).toContain('STRIPE_SECRET_KEY');
+    expect(missing).toContain('STRIPE_PRICE_ID');
+    expect(missing).toContain('STRIPE_WEBHOOK_SECRET');
+    expect(
+      checkoutBlockedMessage({
+        DATABASE_URL: 'postgres://local',
+        STRIPE_SECRET_KEY: 'sk_test_x',
+        STRIPE_PRICE_ID: 'price_x',
+      }),
+    ).toBeNull();
   });
 
   it('uses the server price and ignores a client price', () => {

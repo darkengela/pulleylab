@@ -1,7 +1,7 @@
 import Stripe from 'stripe';
-import { validate } from '../src/cad/parameters';
-import { checkoutLine } from '../src/paywall/access';
-import { configured, sql } from './db';
+import { validate } from '../src/cad/parameters.js';
+import { checkoutBlockedMessage, checkoutLine } from '../src/paywall/access.js';
+import { sql } from './db.js';
 
 function originOf(request: Request) {
   const origin = request.headers.get('origin');
@@ -12,8 +12,15 @@ function originOf(request: Request) {
 }
 
 export async function POST(request: Request) {
-  if (!configured() || !process.env.STRIPE_SECRET_KEY || !process.env.STRIPE_PRICE_ID)
-    return Response.json({ error: 'Payments are not configured.' }, { status: 503 });
+  const blocked = checkoutBlockedMessage(process.env);
+  if (blocked) return Response.json({ error: blocked }, { status: 503 });
+  const secret = process.env.STRIPE_SECRET_KEY;
+  const priceId = process.env.STRIPE_PRICE_ID;
+  if (!secret || !priceId)
+    return Response.json(
+      { error: 'Checkout could not start because payments are not configured.' },
+      { status: 503 },
+    );
   let body: { parameters?: unknown; price?: unknown };
   try {
     body = await request.json();
@@ -26,24 +33,24 @@ export async function POST(request: Request) {
   } catch (error) {
     return Response.json({ error: (error as Error).message }, { status: 400 });
   }
-  const db = sql();
-  const designId = crypto.randomUUID();
-  const orderId = crypto.randomUUID();
-  await db('INSERT INTO designs (id, profile, teeth, parameters) VALUES ($1, $2, $3, $4::jsonb)', [
-    designId,
-    parameters.profile,
-    parameters.teeth,
-    JSON.stringify(parameters),
-  ]);
-  await db('INSERT INTO orders (id, design_id, status) VALUES ($1, $2, $3)', [
-    orderId,
-    designId,
-    'pending',
-  ]);
   try {
-    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+    const db = sql();
+    const designId = crypto.randomUUID();
+    const orderId = crypto.randomUUID();
+    await db('INSERT INTO designs (id, profile, teeth, parameters) VALUES ($1, $2, $3, $4::jsonb)', [
+      designId,
+      parameters.profile,
+      parameters.teeth,
+      JSON.stringify(parameters),
+    ]);
+    await db('INSERT INTO orders (id, design_id, status) VALUES ($1, $2, $3)', [
+      orderId,
+      designId,
+      'pending',
+    ]);
+    const stripe = new Stripe(secret);
     const origin = originOf(request);
-    const line = checkoutLine(process.env.STRIPE_PRICE_ID);
+    const line = checkoutLine(priceId);
     const session = await stripe.checkout.sessions.create({
       mode: 'payment',
       line_items: [line],

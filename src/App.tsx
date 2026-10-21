@@ -146,6 +146,25 @@ function BoreDiagram({
     </svg>
   );
 }
+function ErrorToast({ notice, onDismiss }: { notice: Notice; onDismiss: () => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const node = ref.current;
+    if (!node) return;
+    node.showPopover();
+    return () => {
+      if (node.matches(':popover-open')) node.hidePopover();
+    };
+  }, [notice.id]);
+  return (
+    <div ref={ref} className="error-toast" role="alert" popover="manual">
+      <p>{notice.text}</p>
+      <button type="button" onClick={onDismiss}>
+        Dismiss
+      </button>
+    </div>
+  );
+}
 function Modal({
   title,
   children,
@@ -206,6 +225,7 @@ export default function App() {
     [modal, setModal] = useState<'help' | 'share' | 'checkout' | 'recover' | null>(null),
     [checkoutDesign, setCheckoutDesign] = useState<Parameters | null>(null),
     [checkoutNote, setCheckoutNote] = useState(''),
+    [checkoutBusy, setCheckoutBusy] = useState(false),
     [recoverEmail, setRecoverEmail] = useState(''),
     [recoverProof, setRecoverProof] = useState(''),
     [plannerOpen, setPlannerOpen] = useState(false),
@@ -495,12 +515,14 @@ export default function App() {
     setToast(`${type.toUpperCase()} downloaded`);
   };
   const continueCheckout = async () => {
-    if (!checkoutDesign) return;
+    if (!checkoutDesign || checkoutBusy) return;
+    setCheckoutBusy(true);
     try {
       track('checkout_started');
       location.assign(await startCheckout(checkoutDesign));
     } catch (e) {
       showError((e as Error).message);
+      setCheckoutBusy(false);
     }
   };
   const submitRecovery = async () => {
@@ -1052,12 +1074,11 @@ export default function App() {
         </a>
       </footer>
       {errorNotice && (
-        <div key={errorNotice.id} className="error-toast" role="alert">
-          <p>{errorNotice.text}</p>
-          <button type="button" onClick={() => setErrorNotice(null)}>
-            Dismiss
-          </button>
-        </div>
+        <ErrorToast
+          key={errorNotice.id}
+          notice={errorNotice}
+          onDismiss={() => setErrorNotice(null)}
+        />
       )}
       {toast && (
         <div className="toast glass" role="status">
@@ -1074,8 +1095,13 @@ export default function App() {
             bore, D-shaft flat, and clearance on this design.
           </p>
           {checkoutNote && <p>{checkoutNote}</p>}
-          <button className="download-button" type="button" onClick={continueCheckout}>
-            Continue to checkout
+          <button
+            className="download-button"
+            type="button"
+            disabled={checkoutBusy}
+            onClick={continueCheckout}
+          >
+            {checkoutBusy ? 'Opening checkout…' : 'Continue to checkout'}
           </button>
         </Modal>
       )}

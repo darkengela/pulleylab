@@ -38,4 +38,4 @@ The buyer enters the email Stripe collected plus either the Checkout session id 
 
 ## Local note
 
-`npm run dev` serves the Vite app only. The `api/` routes run on Vercel. Without the four variables, download shows the $5 confirmation and Checkout does not start. Do not paste secrets into the repo. `.gitignore` already ignores `.env` files.
+`npm run dev` serves the Vite app only. The `api/` routes run on Vercel. Without the four variables, download shows the $5 confirmation and Checkout stays on the page. The error toast names whichever of `DATABASE_URL`, `STRIPE_SECRET_KEY`, `STRIPE_PRICE_ID`, and `STRIPE_WEBHOOK_SECRET` are unset. Checkout cannot start until the first three are set. Do not paste secrets into the repo. `.gitignore` already ignores `.env` files.

@@ -1,5 +1,5 @@
-import { DEFAULT_APPEARANCE, validateAppearance } from '../appearance';
-import type { Appearance } from '../appearance';
+import { DEFAULT_APPEARANCE, validateAppearance } from '../appearance.js';
+import type { Appearance } from '../appearance.js';
 
 /**
  * Tooth specs, millimeters.

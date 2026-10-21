@@ -94,6 +94,17 @@ export function checkoutLine(priceId: string) {
   return { price: priceId, quantity: 1 as const };
 }
 
+const CHECKOUT_ENV = ['DATABASE_URL', 'STRIPE_SECRET_KEY', 'STRIPE_PRICE_ID'] as const;
+const PAYMENT_ENV = [...CHECKOUT_ENV, 'STRIPE_WEBHOOK_SECRET'] as const;
+
+/** Names only. Checkout cannot start until the first three are set. */
+export function checkoutBlockedMessage(env: Record<string, string | undefined>) {
+  if (CHECKOUT_ENV.every((name) => env[name])) return null;
+  const missing = PAYMENT_ENV.filter((name) => !env[name]);
+  const list = new Intl.ListFormat('en').format(missing);
+  return `Checkout could not start because payments are not configured. Missing ${list}.`;
+}
+
 export function accessDecision(input: {
   grantDesignId: string;
   requestedDesignId: string;
