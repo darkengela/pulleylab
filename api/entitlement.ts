@@ -3,7 +3,7 @@ import { accessDecision, googleAuthConfigured } from '../src/paywall/access.js';
 import { sql } from './db.js';
 import { hashGrant } from './grant.js';
 import { mintGrant } from './grants.js';
-import { attachSettledPurchase, linkAccountPurchases, settleCheckoutSession } from './purchase.js';
+import { accountAccess, attachSettledPurchase, linkAccountPurchases, settleCheckoutSession } from './purchase.js';
 import { currentAccount } from './session.js';
 
 type EntitlementRow = {
@@ -18,16 +18,8 @@ type EntitlementRow = {
   grant_expires_at: string | null;
 };
 
-// Soft gate: STEP and STL are still generated in the browser. This route only
-// decides whether the browser may save that local file.
-
-async function revisionsFor(id: string) {
-  const db = sql();
-  const rows = (await db('SELECT parameters FROM revisions WHERE entitlement_id = $1', [id])) as {
-    parameters: Parameters;
-  }[];
-  return rows.map((row) => row.parameters as unknown as Record<string, unknown>);
-}
+// The browser still builds STEP and STL. This route decides whether that
+// account's 30-day window is open. A success URL is not access.
 
 export async function POST(request: Request) {
   if (!process.env.DATABASE_URL)
@@ -49,14 +41,33 @@ export async function POST(request: Request) {
       const decision = await attachSettledPurchase(identity, settled);
       if (decision !== 'attach')
         return Response.json({ status: 'paid', needsSignIn: true, mismatch: true });
+      const access = await accountAccess(identity.sub);
+      return Response.json({
+        status: 'paid',
+        accessActive: Boolean(access),
+        accessUntil: access?.accessUntil ?? null,
+        grants: [await mintGrant(settled.row)],
+      });
     }
     return Response.json({ status: 'paid', grants: [await mintGrant(settled.row)] });
   }
+  if (googleAuthConfigured(process.env)) {
+    try {
+      validate(body.parameters);
+    } catch (error) {
+      return Response.json({ allowed: false, error: (error as Error).message }, { status: 400 });
+    }
+    const identity = await currentAccount(request);
+    if (!identity) return Response.json({ allowed: false, reason: 'design' });
+    await linkAccountPurchases(identity);
+    const access = await accountAccess(identity.sub);
+    if (!access) return Response.json({ allowed: false, reason: 'expired' });
+    return Response.json({ allowed: true, accessUntil: access.accessUntil });
+  }
   if (!body.grant || !body.designId)
     return Response.json({ allowed: false, reason: 'design' });
-  let parameters: Parameters;
   try {
-    parameters = validate(body.parameters);
+    validate(body.parameters);
   } catch (error) {
     return Response.json({ allowed: false, error: (error as Error).message }, { status: 400 });
   }
@@ -64,25 +75,12 @@ export async function POST(request: Request) {
     hashGrant(body.grant),
   ])) as EntitlementRow[];
   const row = rows[0];
-  if (!row) return Response.json({ allowed: false, reason: 'design' });
+  if (!row || row.design_id !== body.designId) return Response.json({ allowed: false, reason: 'design' });
   if (!row.grant_expires_at || new Date(row.grant_expires_at).getTime() < Date.now())
     return Response.json({ allowed: false, reason: 'expired' });
   const decision = accessDecision({
-    grantDesignId: row.design_id,
-    requestedDesignId: body.designId,
-    profile: row.profile,
-    teeth: Number(row.teeth),
-    parameters: row.parameters as unknown as Record<string, unknown>,
-    revisions: await revisionsFor(row.id),
-    adjustmentDeadline: new Date(row.adjustment_deadline).getTime(),
-    current: parameters as unknown as Record<string, unknown>,
+    accessDeadline: new Date(row.adjustment_deadline).getTime(),
     now: Date.now(),
   });
-  if (decision.revise)
-    await db('INSERT INTO revisions (id, entitlement_id, parameters) VALUES ($1, $2, $3::jsonb)', [
-      crypto.randomUUID(),
-      row.id,
-      JSON.stringify(parameters),
-    ]);
   return Response.json({ allowed: decision.allowed, reason: decision.reason });
 }

@@ -15,7 +15,8 @@ import {
   checkoutLine,
   claimFromStripeSession,
   designFilePath,
-  fitAdjustmentOnly,
+  effectiveAccessDeadline,
+  ACCESS_MS,
   fulfillmentAction,
   googleAuthConfigured,
   googleIdentityFromClaims,
@@ -31,17 +32,6 @@ import { verifyGoogleIdToken } from '../api/google-token';
 import { createSign, generateKeyPairSync, type JsonWebKey } from 'node:crypto';
 
 const base = { ...DEFAULTS } as Record<string, unknown>;
-const entitlement = {
-  grantDesignId: 'design-a',
-  requestedDesignId: 'design-a',
-  profile: '8M',
-  teeth: 24,
-  parameters: base,
-  revisions: [] as Record<string, unknown>[],
-  adjustmentDeadline: Date.parse('2026-10-27T00:00:00Z'),
-  current: base,
-  now: Date.parse('2026-10-21T00:00:00Z'),
-};
 
 function state(): MemoryState {
   return {
@@ -57,7 +47,7 @@ function fact(overrides: Partial<PaymentFact> = {}): PaymentFact {
     orderId: 'order-1',
     designId: 'design-a',
     paymentStatus: 'paid',
-    amountTotal: 500,
+    amountTotal: 1000,
     currency: 'usd',
     ...overrides,
   };
@@ -105,6 +95,7 @@ describe('paywall decisions', () => {
       fact({ eventType: 'checkout.session.expired', paymentStatus: 'unpaid' }),
       fact({ eventType: 'payment_intent.payment_failed', paymentStatus: 'failed' }),
       fact({ amountTotal: 100, currency: 'usd' }),
+      fact({ amountTotal: 500, currency: 'usd' }),
     ]) {
       const memory = state();
       const action = applyPayment(memory, failed);
@@ -114,28 +105,28 @@ describe('paywall decisions', () => {
     expect(fulfillmentAction(fact({ paymentStatus: 'unpaid' }), new Set(), new Set())).toBe('fail');
   });
 
-  it('does not let a grant for design A authorize design B', () => {
-    expect(accessDecision({ ...entitlement, requestedDesignId: 'design-b' }).allowed).toBe(false);
-    expect(accessDecision({ ...entitlement, current: { ...base, profile: '5M' } }).reason).toBe('design');
-    expect(accessDecision(entitlement).allowed).toBe(true);
+  it('allows any profile and tooth count during a 30-day window and denies a closed one', () => {
+    const openUntil = Date.parse('2026-11-20T00:00:00Z');
+    const now = Date.parse('2026-10-21T00:00:00Z');
+    expect(accessDecision({ accessDeadline: openUntil, now })).toEqual({ allowed: true, revise: false });
+    expect(accessDecision({ accessDeadline: openUntil, now: openUntil + 1 })).toEqual({
+      allowed: false,
+      revise: false,
+      reason: 'expired',
+    });
+    expect(base.profile).toBe('8M');
   });
 
-  it('treats profile or tooth changes as a new design and bore, flat, and clearance as a fit adjustment', () => {
-    expect(fitAdjustmentOnly(base, { ...base, teeth: 30 })).toBe(false);
-    expect(fitAdjustmentOnly(base, { ...base, profile: 'GT2' })).toBe(false);
-    expect(fitAdjustmentOnly(base, { ...base, bore: 10, d_flat: 6, clearance: 2 })).toBe(true);
-    const inside = accessDecision({
-      ...entitlement,
-      current: { ...base, bore: 12, d_shaft: true, d_diameter: 12, d_flat: 10, clearance: 1.5 },
-    });
-    expect(inside).toEqual({ allowed: true, revise: true });
-    const expired = accessDecision({
-      ...entitlement,
-      now: Date.parse('2026-11-01T00:00:00Z'),
-      current: { ...base, bore: 12 },
-    });
-    expect(expired.allowed).toBe(false);
-    expect(accessDecision({ ...entitlement, current: { ...base, set_screw: true } }).allowed).toBe(false);
+  it('upgrades a 7-day purchase to 30 days from the original payment', () => {
+    const paid = Date.parse('2026-10-20T00:00:00Z');
+    const storedSevenDays = paid + 7 * 24 * 60 * 60 * 1000;
+    const until = effectiveAccessDeadline(paid, storedSevenDays);
+    expect(until - paid).toBe(ACCESS_MS);
+    expect(accessDecision({ accessDeadline: until, now: Date.parse('2026-10-21T00:00:00Z') }).allowed).toBe(
+      true,
+    );
+    expect(accessDecision({ accessDeadline: until, now: until + 1 }).allowed).toBe(false);
+    expect(effectiveAccessDeadline(paid, paid + ACCESS_MS + 1000)).toBe(paid + ACCESS_MS + 1000);
   });
 
   it('does not unlock from an unverified email', () => {
@@ -248,7 +239,7 @@ describe('paywall decisions', () => {
     const paid = {
       status: 'complete',
       payment_status: 'paid',
-      amount_total: 500,
+      amount_total: 1000,
       currency: 'usd',
       metadata: { order_id: 'order-1', design_id: 'design-a' },
     };
@@ -261,8 +252,9 @@ describe('paywall decisions', () => {
     expect(claimFromStripeSession({ ...paid, status: 'open', payment_status: 'unpaid' })).toBe('none');
     expect(claimFromStripeSession({ ...paid, status: 'expired', payment_status: 'unpaid' })).toBe('none');
     expect(claimFromStripeSession({ ...paid, amount_total: 100 })).toBe('none');
+    expect(claimFromStripeSession({ ...paid, amount_total: 500 })).toBe('none');
     expect(claimFromStripeSession(null)).toBe('none');
-    expect(paymentReturnMessage(true)).toContain('Download STEP or STL');
+    expect(paymentReturnMessage(true)).toContain('30 days');
     expect(paymentReturnMessage(false)).toContain('stay locked');
   });
 
@@ -273,13 +265,13 @@ describe('paywall decisions', () => {
     expect(() => designFilePath('../secret', 'step')).toThrow('Invalid design.');
     expect(() => designFilePath(designId, 'price')).toThrow('Invalid file.');
     expect(
-      authorizeStoredFile({ grantDesignId: designId, requestedDesignId: designId, decisionAllowed: true }),
+      authorizeStoredFile({ ownedDesignId: designId, requestedDesignId: designId, accessOpen: true }),
     ).toBe('allow');
     expect(
-      authorizeStoredFile({ grantDesignId: designId, requestedDesignId: 'other', decisionAllowed: true }),
+      authorizeStoredFile({ ownedDesignId: designId, requestedDesignId: 'other', accessOpen: true }),
     ).toBe('deny');
     expect(
-      authorizeStoredFile({ grantDesignId: designId, requestedDesignId: designId, decisionAllowed: false }),
+      authorizeStoredFile({ ownedDesignId: designId, requestedDesignId: designId, accessOpen: false }),
     ).toBe('deny');
   });
 
@@ -314,31 +306,26 @@ describe('paywall decisions', () => {
     }
   });
 
-  it('does not upload a design that has no grant and serves a stored file when one exists', async () => {
-    const memory = new Map<string, string>();
-    vi.stubGlobal('sessionStorage', {
-      getItem: (key: string) => memory.get(key) ?? null,
-      setItem: (key: string, value: string) => void memory.set(key, value),
-    });
+  it('does not upload a locked design and serves a stored file when the server has one', async () => {
     const original = globalThis.fetch;
     const local = new Blob(['local-step']);
     try {
-      let calls = 0;
-      globalThis.fetch = async () => {
-        calls += 1;
-        return new Response('nope', { status: 500 });
+      let uploads = 0;
+      globalThis.fetch = async (input) => {
+        const url = String(input);
+        if (url.includes('/api/design-file') || url.includes('/api/designs')) uploads += 1;
+        return Response.json({ allowed: false, reason: 'design' });
       };
       expect(await fileForDownload({ ...DEFAULTS }, 'step', local)).toBe(local);
-      expect(calls).toBe(0);
-      memory.set(
-        'pulleylab:grants:v1',
-        JSON.stringify({ '8M:24': { token: 'grant-token', designId: 'design-a' } }),
-      );
-      globalThis.fetch = async () => new Response('stored-step', { status: 200 });
+      expect(uploads).toBe(0);
+      globalThis.fetch = async (input) => {
+        const url = String(input);
+        if (url.includes('/api/design-file')) return new Response('stored-step', { status: 200 });
+        return Response.json({ allowed: true });
+      };
       await expect((await fileForDownload({ ...DEFAULTS }, 'step', local)).text()).resolves.toBe('stored-step');
     } finally {
       globalThis.fetch = original;
-      vi.unstubAllGlobals();
     }
   });
 
@@ -371,23 +358,17 @@ describe('paywall decisions', () => {
     );
   });
 
-  it('allows a fit change for 7 days and denies a different tooth count', () => {
-    const fit = accessDecision({
-      ...entitlement,
-      current: { ...base, bore: 8, d_flat: 6, clearance: 0.2 },
-    });
-    expect(fit).toEqual({ allowed: true, revise: true });
-    expect(accessDecision({ ...entitlement, current: { ...base, teeth: 60 } })).toMatchObject({
+  it('allows any generation during the upgraded 30-day window and denies it after', () => {
+    const paid = Date.parse('2026-10-14T00:00:00Z');
+    const until = effectiveAccessDeadline(paid, paid + 7 * 24 * 60 * 60 * 1000);
+    expect(until - paid).toBe(30 * 24 * 60 * 60 * 1000);
+    expect(accessDecision({ accessDeadline: until, now: Date.parse('2026-10-21T00:00:00Z') }).allowed).toBe(
+      true,
+    );
+    expect(accessDecision({ accessDeadline: until, now: until + 1 })).toMatchObject({
       allowed: false,
-      reason: 'design',
+      reason: 'expired',
     });
-    expect(
-      accessDecision({
-        ...entitlement,
-        now: entitlement.adjustmentDeadline + 1,
-        current: { ...base, bore: 12 },
-      }).allowed,
-    ).toBe(false);
   });
 
   it('accepts only a signed Google ID token for this client and nonce', () => {

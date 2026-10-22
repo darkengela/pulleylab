@@ -94,6 +94,15 @@ CREATE TABLE IF NOT EXISTS auth_sessions (
 ALTER TABLE entitlements ADD COLUMN IF NOT EXISTS google_sub TEXT;
 CREATE INDEX IF NOT EXISTS entitlements_google_sub_idx ON entitlements (google_sub);
 CREATE INDEX IF NOT EXISTS accounts_email_idx ON accounts (email);
+
+ALTER TABLE designs ADD COLUMN IF NOT EXISTS google_sub TEXT;
+ALTER TABLE designs ADD COLUMN IF NOT EXISTS entitlement_id TEXT;
+ALTER TABLE designs ADD COLUMN IF NOT EXISTS upload_grant_hash TEXT;
+CREATE INDEX IF NOT EXISTS designs_google_sub_idx ON designs (google_sub);
+
+UPDATE entitlements
+SET adjustment_deadline = created_at + interval '30 days'
+WHERE adjustment_deadline < created_at + interval '30 days';
 `;
 
 let ready: Promise<void> | undefined;

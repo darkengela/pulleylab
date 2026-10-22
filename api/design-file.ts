@@ -1,14 +1,16 @@
 import { get, head } from '@vercel/blob';
 import { handleUpload, type HandleUploadBody } from '@vercel/blob/client';
 import { validate, type Parameters } from '../src/cad/parameters.js';
-import {
-  accessDecision,
-  authorizeStoredFile,
-  designFilePath,
-  sameParameters,
-} from '../src/paywall/access.js';
+import { authorizeStoredFile, designFilePath, sameParameters } from '../src/paywall/access.js';
 import { sql } from './db.js';
-import { hashGrant } from './grant.js';
+import {
+  accountAccess,
+  designRecord,
+  ownedDesign,
+  uploadTokenMatches,
+  type StoredDesignRow,
+} from './purchase.js';
+import { currentAccount } from './session.js';
 
 type FileClaim = {
   grant?: string;
@@ -17,22 +19,15 @@ type FileClaim = {
   parameters?: unknown;
 };
 
-type DesignFileRow = {
-  id: string;
-  design_id: string;
-  profile: string;
-  teeth: number;
-  parameters: Record<string, unknown>;
-  adjustment_deadline: string;
-  grant_expires_at: string | null;
-  step_blob_path: string | null;
-  stl_blob_path: string | null;
-  step_file_parameters: unknown;
-  stl_file_parameters: unknown;
-};
-
 type FileAccess =
-  | { ok: true; path: string; kind: 'step' | 'stl'; designId: string; parameters: Parameters; row: DesignFileRow }
+  | {
+      ok: true;
+      path: string;
+      kind: 'step' | 'stl';
+      designId: string;
+      parameters: Parameters;
+      row: StoredDesignRow;
+    }
   | { ok: false; status: number; reason: 'design' | 'expired' };
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -48,67 +43,83 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === 'object' ? (value as Record<string, unknown>) : null;
 }
 
-async function revisionsFor(id: string) {
-  const db = sql();
-  const rows = (await db('SELECT parameters FROM revisions WHERE entitlement_id = $1', [id])) as {
-    parameters: Record<string, unknown>;
-  }[];
-  return rows.map((row) => row.parameters);
-}
-
-async function requireFile(claim: FileClaim): Promise<FileAccess> {
-  if (!claim.grant || !claim.designId || (claim.kind !== 'step' && claim.kind !== 'stl'))
-    return { ok: false, status: 403, reason: 'design' };
+async function requireFile(request: Request, claim: FileClaim): Promise<FileAccess> {
+  if (claim.kind !== 'step' && claim.kind !== 'stl') return { ok: false, status: 403, reason: 'design' };
+  const identity = await currentAccount(request);
+  let row: StoredDesignRow | null = null;
+  if (claim.designId) {
+    try {
+      designFilePath(claim.designId, claim.kind);
+    } catch {
+      return { ok: false, status: 400, reason: 'design' };
+    }
+    row = await designRecord(claim.designId);
+    if (row && identity && !row.google_sub) {
+      const owned = await ownedDesign(identity.sub, row.id);
+      if (owned) row = { ...row, google_sub: identity.sub };
+    }
+  } else if (identity) {
+    let parameters: Parameters;
+    try {
+      parameters = validate(claim.parameters);
+    } catch {
+      return { ok: false, status: 400, reason: 'design' };
+    }
+    const db = sql();
+    const rows = (await db(
+      `SELECT id, google_sub, profile, teeth, parameters, upload_grant_hash,
+              step_blob_path, stl_blob_path, step_file_parameters, stl_file_parameters
+       FROM designs
+       WHERE google_sub = $1 AND parameters = $2::jsonb
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [identity.sub, JSON.stringify(parameters)],
+    )) as StoredDesignRow[];
+    row = rows[0] ?? null;
+  }
+  if (!row?.google_sub) return { ok: false, status: 404, reason: 'design' };
+  const sessionOwns = identity?.sub === row.google_sub;
+  const tokenOwns = uploadTokenMatches(row, claim.grant);
+  if (!sessionOwns && !tokenOwns) return { ok: false, status: 403, reason: 'design' };
+  const access = await accountAccess(row.google_sub);
+  if (
+    authorizeStoredFile({
+      ownedDesignId: row.id,
+      requestedDesignId: row.id,
+      accessOpen: Boolean(access),
+    }) !== 'allow'
+  )
+    return { ok: false, status: 403, reason: 'expired' };
   let parameters: Parameters;
-  let path: string;
   try {
-    parameters = validate(claim.parameters);
-    path = designFilePath(claim.designId, claim.kind);
+    parameters = validate(claim.parameters ?? row.parameters);
   } catch {
     return { ok: false, status: 400, reason: 'design' };
   }
-  const db = sql();
-  const rows = (await db(
-    `SELECT e.id, e.design_id, e.profile, e.teeth, e.parameters, e.adjustment_deadline, e.grant_expires_at,
-            d.step_blob_path, d.stl_blob_path, d.step_file_parameters, d.stl_file_parameters
-     FROM entitlements e
-     JOIN designs d ON d.id = e.design_id
-     WHERE e.grant_hash = $1`,
-    [hashGrant(claim.grant)],
-  )) as DesignFileRow[];
-  const row = rows[0];
-  if (!row) return { ok: false, status: 403, reason: 'design' };
-  if (!row.grant_expires_at || new Date(row.grant_expires_at).getTime() < Date.now())
-    return { ok: false, status: 403, reason: 'expired' };
-  const decision = accessDecision({
-    grantDesignId: row.design_id,
-    requestedDesignId: claim.designId,
-    profile: row.profile,
-    teeth: Number(row.teeth),
-    parameters: row.parameters,
-    revisions: await revisionsFor(row.id),
-    adjustmentDeadline: new Date(row.adjustment_deadline).getTime(),
-    current: parameters as unknown as Record<string, unknown>,
-    now: Date.now(),
-  });
-  if (
-    authorizeStoredFile({
-      grantDesignId: row.design_id,
-      requestedDesignId: claim.designId,
-      decisionAllowed: decision.allowed,
-    }) !== 'allow'
-  )
+  const stored = asRecord(row.parameters);
+  if (!stored || !sameParameters(stored, parameters as unknown as Record<string, unknown>))
     return { ok: false, status: 403, reason: 'design' };
-  return { ok: true, path, kind: claim.kind, designId: row.design_id, parameters, row };
+  return {
+    ok: true,
+    path: designFilePath(row.id, claim.kind),
+    kind: claim.kind,
+    designId: row.id,
+    parameters,
+    row,
+  };
 }
 
 function denied(access: Extract<FileAccess, { ok: false }>) {
-  const error = access.reason === 'expired' ? 'This download link expired.' : 'This design is locked.';
+  if (access.status === 404) return Response.json({ missing: true }, { status: 404 });
+  const error =
+    access.reason === 'expired'
+      ? 'Your 30-day access has ended. A new $10 payment is required to download.'
+      : 'This design is locked.';
   return Response.json({ error, reason: access.reason }, { status: access.status });
 }
 
-async function download(claim: FileClaim) {
-  const access = await requireFile(claim);
+async function download(request: Request, claim: FileClaim) {
+  const access = await requireFile(request, claim);
   if (!access.ok) return denied(access);
   const storedPath = access.kind === 'step' ? access.row.step_blob_path : access.row.stl_blob_path;
   const storedParams = asRecord(
@@ -132,8 +143,8 @@ async function download(claim: FileClaim) {
   });
 }
 
-async function commit(claim: FileClaim) {
-  const access = await requireFile(claim);
+async function commit(request: Request, claim: FileClaim) {
+  const access = await requireFile(request, claim);
   if (!access.ok) return denied(access);
   try {
     await head(access.path);
@@ -167,7 +178,7 @@ export async function POST(request: Request) {
         body: body as HandleUploadBody,
         onBeforeGenerateToken: async (pathname, clientPayload) => {
           const claim = JSON.parse(clientPayload || '{}') as FileClaim;
-          const access = await requireFile(claim);
+          const access = await requireFile(request, claim);
           if (!access.ok || pathname !== access.path) throw Error('locked');
           return {
             addRandomSuffix: false,
@@ -189,7 +200,7 @@ export async function POST(request: Request) {
       return Response.json({ error: 'This design is locked.' }, { status: 403 });
     }
   }
-  if (body.action === 'download') return download(body);
-  if (body.action === 'commit') return commit(body);
+  if (body.action === 'download') return download(request, body);
+  if (body.action === 'commit') return commit(request, body);
   return Response.json({ error: 'Invalid request.' }, { status: 400 });
 }

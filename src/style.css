@@ -48,7 +48,7 @@ button:disabled {
 }
 button:focus-visible,
 a:focus-visible {
-  outline: 2px solid var(--cyan);
+  outline: 2px solid #ff7a1a;
   outline-offset: 4px;
 }
 button,
@@ -1067,11 +1067,11 @@ a.download-button {
   text-decoration: none;
   color: #f2f2f2;
 }
-.account-note {
+.access-mark {
   margin: 8px 0 0;
-  font-size: 11px;
-  line-height: 1.5;
-  color: #9a9a9a;
+  color: #ff7a1a;
+  font-size: 12px;
+  font-weight: 650;
 }
 .saved-list {
   list-style: none;
@@ -2087,7 +2087,7 @@ a.download-button {
   cursor: pointer;
 }
 .display-mode-control:focus-within {
-  outline: 2px solid var(--cyan);
+  outline: 2px solid #ff7a1a;
   outline-offset: 3px;
 }
 .display-mode-control option {
@@ -2431,8 +2431,12 @@ body .tool-popover-button:hover {
   background: #ffffff12;
 }
 body .task-tab[aria-expanded='true'] {
-  background: #ffffff14;
-  border-color: #ffffff2e;
+  background: #ff7a1a18;
+  border-color: #ff7a1a;
+  color: #ffc49a;
+}
+body .task-tab[aria-expanded='true'] small {
+  color: #ffc49a;
 }
 body .tool-bar .live-od {
   margin: 0;
@@ -2453,8 +2457,26 @@ body .tool-generate .cancel-button {
   white-space: nowrap;
 }
 body .tool-popover-button[aria-expanded='true'] {
-  background: #ffffff18;
-  border-color: #ffffff33;
+  background: #ff7a1a18;
+  border-color: #ff7a1a;
+  color: #ffc49a;
+}
+body .account-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 36px;
+  padding: 0 14px;
+  border-radius: 999px;
+  background: #ff7a1a;
+  color: #1a120c;
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+  white-space: nowrap;
+}
+body .account-pill:hover {
+  background: #ff8d3d;
 }
 body .tool-generate {
   display: flex;

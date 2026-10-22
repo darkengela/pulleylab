@@ -3,8 +3,8 @@ import { upload } from '@vercel/blob/client';
 import type { Parameters } from '../cad/parameters';
 import { designKey, validCheckoutSessionId } from './access';
 
-// Soft gate: STEP and STL are still generated in the browser. A grant only
-// decides whether this page may save that local file. It is not a DRM boundary.
+// The browser still builds STEP and STL. The server decides whether this
+// account's 30-day window is open, then stores the files.
 
 const STORAGE = 'pulleylab:grants:v1';
 export type StoredGrant = { token: string; designId: string };
@@ -55,12 +55,12 @@ function remember(grants: GrantPayload[] | undefined) {
 
 export async function verifyDownload(parameters: Parameters): Promise<DownloadVerdict> {
   const grant = readGrants()[designKey(parameters)];
-  if (!grant) return 'locked';
   try {
     const response = await fetch('/api/entitlement', {
       method: 'POST',
+      credentials: 'same-origin',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ grant: grant.token, designId: grant.designId, parameters }),
+      body: JSON.stringify({ grant: grant?.token, designId: grant?.designId, parameters }),
     });
     if (!response.ok) return response.status >= 500 ? 'offline' : 'locked';
     const body = (await response.json()) as { allowed?: boolean; reason?: string };
@@ -94,7 +94,7 @@ export function returnSessionId(search: string) {
 
 export function paymentReturnMessage(claimed: boolean) {
   return claimed
-    ? 'Payment received. This design is unlocked. Download STEP or STL.'
+    ? 'Payment received. You have 30 days of unlimited generations and downloads.'
     : 'Payment is not confirmed yet. Downloads stay locked.';
 }
 
@@ -104,30 +104,47 @@ export function signInHref(sessionId?: string | null) {
   return '/api/google/start';
 }
 
-export type SavedDesign = GrantPayload & {
+export type SavedDesign = {
+  designId: string;
+  profile: string;
+  teeth: number;
   parameters: Record<string, unknown>;
-  adjustmentDeadline: string;
+  createdAt: string;
+  hasStep: boolean;
+  hasStl: boolean;
 };
 
-export async function loadAccount(): Promise<{
+export type AccountSnapshot = {
   google: boolean;
   signedIn: boolean;
+  accessActive: boolean;
+  accessUntil: string | null;
   designs: SavedDesign[];
-}> {
+};
+
+const EMPTY_ACCOUNT: AccountSnapshot = {
+  google: false,
+  signedIn: false,
+  accessActive: false,
+  accessUntil: null,
+  designs: [],
+};
+
+export async function loadAccount(): Promise<AccountSnapshot> {
   try {
     const response = await fetch('/api/account', { credentials: 'same-origin' });
-    if (!response.ok) return { google: false, signedIn: false, designs: [] };
-    const body = (await response.json()) as {
-      google?: boolean;
-      signedIn?: boolean;
-      designs?: SavedDesign[];
-    };
+    if (!response.ok) return EMPTY_ACCOUNT;
+    const body = (await response.json()) as Partial<AccountSnapshot>;
     const designs = Array.isArray(body.designs) ? body.designs : [];
-    if (body.signedIn)
-      remember(designs.filter((design) => design.token && design.designId && design.profile));
-    return { google: Boolean(body.google), signedIn: Boolean(body.signedIn), designs };
+    return {
+      google: Boolean(body.google),
+      signedIn: Boolean(body.signedIn),
+      accessActive: Boolean(body.accessActive),
+      accessUntil: body.accessUntil ?? null,
+      designs,
+    };
   } catch {
-    return { google: false, signedIn: false, designs: [] };
+    return EMPTY_ACCOUNT;
   }
 }
 
@@ -194,58 +211,106 @@ export async function recoverPurchase(email: string, proof: { sessionId?: string
 
 const FILE_URL = '/api/design-file';
 
+async function openSave(parameters: Parameters) {
+  const response = await fetch('/api/designs', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ parameters }),
+  });
+  if (response.status === 401) throw Error('signin');
+  if (response.status === 403) throw Error('expired');
+  if (!response.ok) throw Error('save');
+  return (await response.json()) as {
+    designId: string;
+    uploadToken: string | null;
+    complete: boolean;
+  };
+}
+
+async function putDesignFile(
+  save: { designId: string; uploadToken: string },
+  parameters: Parameters,
+  kind: 'step' | 'stl',
+  local: Blob,
+) {
+  const claim = { grant: save.uploadToken, designId: save.designId, kind, parameters };
+  await upload(`designs/${save.designId}.${kind}`, local, {
+    access: 'private',
+    handleUploadUrl: FILE_URL,
+    contentType: kind === 'step' ? 'application/step' : 'model/stl',
+    clientPayload: JSON.stringify(claim),
+  });
+  const commit = await fetch(FILE_URL, {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ action: 'commit', ...claim }),
+  });
+  if (commit.status === 403) {
+    const body = (await commit.json().catch(() => ({}))) as { reason?: string };
+    throw Error(body.reason === 'expired' ? 'expired' : 'locked');
+  }
+  if (!commit.ok) throw Error('save');
+}
+
+/** Stores parameters plus STEP and STL while the account's access window is open. */
+export async function saveGeneratedDesign(
+  parameters: Parameters,
+  files: { step: Blob; stl: Blob },
+) {
+  const save = await openSave(parameters);
+  if (save.complete || !save.uploadToken) return { designId: save.designId, uploaded: false };
+  const token = save.uploadToken;
+  await Promise.all(
+    (['step', 'stl'] as const).map((kind) =>
+      putDesignFile({ designId: save.designId, uploadToken: token }, parameters, kind, files[kind]),
+    ),
+  );
+  return { designId: save.designId, uploaded: true };
+}
+
 /** Prefer the private stored file. If it is missing, upload the browser-generated file once. */
 export async function fileForDownload(parameters: Parameters, kind: 'step' | 'stl', local: Blob) {
-  const grant = readGrants()[designKey(parameters)];
-  if (!grant) return local;
-  const claim = { grant: grant.token, designId: grant.designId, kind, parameters };
+  const verdict = await verifyDownload(parameters);
+  if (verdict === 'expired') throw Error('expired');
+  if (verdict === 'offline') throw Error('offline');
+  if (verdict !== 'allowed') return local;
   try {
     const response = await fetch(FILE_URL, {
       method: 'POST',
+      credentials: 'same-origin',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ action: 'download', ...claim }),
+      body: JSON.stringify({ action: 'download', kind, parameters }),
     });
     if (response.status === 403) {
       const body = (await response.json().catch(() => ({}))) as { reason?: string };
       throw Error(body.reason === 'expired' ? 'expired' : 'locked');
     }
     if (response.ok) return response.blob();
-    await upload(`designs/${grant.designId}.${kind}`, local, {
-      access: 'private',
-      handleUploadUrl: FILE_URL,
-      contentType: kind === 'step' ? 'application/step' : 'model/stl',
-      clientPayload: JSON.stringify(claim),
-    });
-    const commit = await fetch(FILE_URL, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ action: 'commit', ...claim }),
-    });
-    if (commit.status === 403) {
-      const body = (await commit.json().catch(() => ({}))) as { reason?: string };
-      throw Error(body.reason === 'expired' ? 'expired' : 'locked');
-    }
+    if (response.status !== 404) return local;
+    const save = await openSave(parameters);
+    if (!save.uploadToken) return local;
+    await putDesignFile(
+      { designId: save.designId, uploadToken: save.uploadToken },
+      parameters,
+      kind,
+      local,
+    );
   } catch (error) {
-    if (error instanceof Error && (error.message === 'locked' || error.message === 'expired')) throw error;
+    if (error instanceof Error && (error.message === 'locked' || error.message === 'expired' || error.message === 'signin'))
+      throw error;
   }
   return local;
 }
 
-/** A stored STEP or STL for a signed-in design. Null means the browser still has to generate it once. */
-export async function downloadStoredFile(parameters: Parameters, kind: 'step' | 'stl') {
-  const grant = readGrants()[designKey(parameters)];
-  if (!grant) throw Error('locked');
+/** A stored STEP or STL for a signed-in design. Null means the file was never stored. */
+export async function downloadStoredFile(designId: string, kind: 'step' | 'stl') {
   const response = await fetch(FILE_URL, {
     method: 'POST',
     credentials: 'same-origin',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      action: 'download',
-      grant: grant.token,
-      designId: grant.designId,
-      kind,
-      parameters,
-    }),
+    body: JSON.stringify({ action: 'download', designId, kind }),
   });
   if (response.status === 404) return null;
   if (response.status === 403) {

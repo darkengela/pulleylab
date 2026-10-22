@@ -1,4 +1,4 @@
-import { ADJUSTMENT_MS } from '../src/paywall/access.js';
+import { ACCESS_MS } from '../src/paywall/access.js';
 
 type Query = (text: string, params?: unknown[]) => Promise<unknown[]>;
 
@@ -25,7 +25,7 @@ export async function grantPaidOrder(
       design?.profile ?? '',
       design?.teeth ?? 0,
       JSON.stringify(design?.parameters ?? {}),
-      new Date(Date.now() + ADJUSTMENT_MS).toISOString(),
+      new Date(Date.now() + ACCESS_MS).toISOString(),
     ],
   );
   await db(

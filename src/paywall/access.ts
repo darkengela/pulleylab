@@ -1,8 +1,12 @@
-/** $5 unlocks one profile and tooth count. The client never chooses the Stripe price. */
-export const PRICE_CENTS = 500;
-export const ADJUSTMENT_MS = 7 * 24 * 60 * 60 * 1000;
+/** $10 is 30 days of unlimited generations and downloads. The client never chooses the Stripe price. */
+export const PRICE_CENTS = 1000;
+export const ACCESS_MS = 30 * 24 * 60 * 60 * 1000;
 export const GRANT_MS = 12 * 60 * 60 * 1000;
-const FIT = new Set(['bore', 'd_shaft', 'd_diameter', 'd_flat', 'clearance']);
+
+/** Older checkouts stored a 7-day fit window. Access is 30 days from the original payment, never shorter. */
+export function effectiveAccessDeadline(createdAtMs: number, storedDeadlineMs: number) {
+  return Math.max(storedDeadlineMs, createdAtMs + ACCESS_MS);
+}
 
 export function designKey(p: { profile: string; teeth: number }) {
   return `${p.profile}:${p.teeth}`;
@@ -11,16 +15,6 @@ export function designKey(p: { profile: string; teeth: number }) {
 export function sameParameters(a: Record<string, unknown>, b: Record<string, unknown>) {
   const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
   for (const key of keys) if (a[key] !== b[key]) return false;
-  return true;
-}
-
-/** Profile or tooth count is a different design. Bore, D-flat, and clearance are fit adjustments. */
-export function fitAdjustmentOnly(base: Record<string, unknown>, next: Record<string, unknown>) {
-  if (base.profile !== next.profile || base.teeth !== next.teeth) return false;
-  for (const key of new Set([...Object.keys(base), ...Object.keys(next)])) {
-    if (FIT.has(key)) continue;
-    if (base[key] !== next[key]) return false;
-  }
   return true;
 }
 
@@ -99,7 +93,7 @@ export type CheckoutSessionView = {
 
 /**
  * The browser return URL is not payment proof. Grant only when Stripe reports
- * a completed $5 usd session. Canceled and unpaid sessions stay locked.
+ * a completed $10 usd session. Canceled and unpaid sessions stay locked.
  */
 export function claimFromStripeSession(session: CheckoutSessionView | null): 'grant' | 'none' {
   if (!session?.metadata?.order_id || !session.metadata.design_id) return 'none';
@@ -126,13 +120,13 @@ export function designFilePath(designId: string, kind: string) {
   return `designs/${designId}.${kind}`;
 }
 
-/** The grant's design must be the one being stored. A price or a bare claim is not a grant. */
+/** The caller's design must be the one stored, and the 30-day window must still be open. */
 export function authorizeStoredFile(input: {
-  grantDesignId: string;
+  ownedDesignId: string;
   requestedDesignId: string;
-  decisionAllowed: boolean;
+  accessOpen: boolean;
 }): 'allow' | 'deny' {
-  if (!input.decisionAllowed || input.grantDesignId !== input.requestedDesignId) return 'deny';
+  if (!input.accessOpen || input.ownedDesignId !== input.requestedDesignId) return 'deny';
   return 'allow';
 }
 
@@ -162,29 +156,13 @@ export function checkoutBlockedMessage(env: Record<string, string | undefined>) 
   return `Checkout could not start because payments are not configured. Missing ${list}.`;
 }
 
+/** Any profile, tooth count, or fit is included while the payment's 30-day window is open. */
 export function accessDecision(input: {
-  grantDesignId: string;
-  requestedDesignId: string;
-  profile: string;
-  teeth: number;
-  parameters: Record<string, unknown>;
-  revisions: Record<string, unknown>[];
-  adjustmentDeadline: number;
-  current: Record<string, unknown>;
+  accessDeadline: number;
   now: number;
-}): { allowed: boolean; revise: boolean; reason?: 'design' | 'adjustment' } {
-  if (
-    input.grantDesignId !== input.requestedDesignId ||
-    input.current.profile !== input.profile ||
-    input.current.teeth !== input.teeth
-  )
-    return { allowed: false, revise: false, reason: 'design' };
-  if (sameParameters(input.parameters, input.current)) return { allowed: true, revise: false };
-  if (input.revisions.some((revision) => sameParameters(revision, input.current)))
-    return { allowed: true, revise: false };
-  if (input.now <= input.adjustmentDeadline && fitAdjustmentOnly(input.parameters, input.current))
-    return { allowed: true, revise: true };
-  return { allowed: false, revise: false, reason: 'adjustment' };
+}): { allowed: boolean; revise: boolean; reason?: 'expired' } {
+  if (input.now <= input.accessDeadline) return { allowed: true, revise: false };
+  return { allowed: false, revise: false, reason: 'expired' };
 }
 
 export function recoveryDecision(input: {

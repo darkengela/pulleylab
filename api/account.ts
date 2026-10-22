@@ -1,6 +1,5 @@
 import { checkoutErrorMessage, googleAuthConfigured } from '../src/paywall/access.js';
-import { mintGrant } from './grants.js';
-import { linkAccountPurchases, savedDesigns } from './purchase.js';
+import { accountAccess, linkAccountPurchases, savedDesigns } from './purchase.js';
 import {
   SESSION_COOKIE,
   clearCookie,
@@ -29,29 +28,31 @@ function iso(value: unknown) {
 
 export async function GET(request: Request) {
   const google = googleAuthConfigured(process.env);
-  if (!process.env.DATABASE_URL)
-    return Response.json({ google, signedIn: false, designs: [] });
+  const empty = { google, signedIn: false, accessActive: false, accessUntil: null, designs: [] };
+  if (!process.env.DATABASE_URL) return Response.json(empty);
   try {
     const identity = await currentAccount(request);
-    if (!identity) return Response.json({ google, signedIn: false, designs: [] });
+    if (!identity) return Response.json(empty);
     await linkAccountPurchases(identity);
+    const access = await accountAccess(identity.sub);
     const rows = await savedDesigns(identity.sub);
-    const designs = [];
-    for (const row of rows) {
-      const base = asRecord(row.parameters) ?? {};
-      const latest = asRecord(row.latest);
-      const parameters =
-        latest && latest.profile === row.profile && Number(latest.teeth) === Number(row.teeth)
-          ? latest
-          : base;
-      designs.push({
-        ...(await mintGrant(row)),
-        parameters,
-        adjustmentDeadline: iso(row.adjustment_deadline),
-      });
-    }
+    const designs = rows.map((row) => ({
+      designId: row.design_id,
+      profile: row.profile,
+      teeth: Number(row.teeth),
+      parameters: asRecord(row.parameters) ?? {},
+      createdAt: iso(row.created_at),
+      hasStep: Boolean(row.has_step),
+      hasStl: Boolean(row.has_stl),
+    }));
     return Response.json(
-      { google, signedIn: true, designs },
+      {
+        google,
+        signedIn: true,
+        accessActive: Boolean(access),
+        accessUntil: access?.accessUntil ?? null,
+        designs,
+      },
       { headers: { 'cache-control': 'private, no-store' } },
     );
   } catch (error) {

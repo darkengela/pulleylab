@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Download } from 'lucide-react';
 import { track } from '@vercel/analytics';
 import { zipSync, strToU8 } from 'fflate';
@@ -49,6 +49,8 @@ export default function PairWorkspace({
   dirty,
   onError,
   beforeDownload,
+  onGenerated,
+  enabled = true,
 }: {
   pair: PulleyPair;
   appearance: Appearance;
@@ -58,6 +60,8 @@ export default function PairWorkspace({
   dirty: boolean;
   onError: (message: string) => void;
   beforeDownload: () => Promise<boolean>;
+  onGenerated?: (drive: PulleyResult, driven: PulleyResult) => void;
+  enabled?: boolean;
 }) {
   const [result, setResult] = useState<{ drive: PulleyResult; driven: PulleyResult } | null>(null),
     [stage, setStage] = useState('Loading CAD engine'),
@@ -65,7 +69,10 @@ export default function PairWorkspace({
     [attempt, setAttempt] = useState(0),
     [active, setActive] = useState<'both' | 'drive' | 'driven'>('both'),
     [packing, setPacking] = useState(false);
+  const onGeneratedRef = useRef(onGenerated);
+  onGeneratedRef.current = onGenerated;
   useEffect(() => {
+    if (!enabled) return;
     setResult(null);
     setError('');
     onBusyChange(true);
@@ -85,6 +92,7 @@ export default function PairWorkspace({
       if (e.data.type === 'progress') setStage(e.data.stage);
       if (e.data.type === 'pair-result') {
         setResult({ drive: e.data.drive, driven: e.data.driven });
+        onGeneratedRef.current?.(e.data.drive, e.data.driven);
         track('preview_ready');
         stop();
       }
@@ -102,7 +110,7 @@ export default function PairWorkspace({
     };
     worker.postMessage({ type: 'pair', drive: pair.drive, driven: pair.driven });
     return stop;
-  }, [pair, attempt, onBusyChange]);
+  }, [pair, attempt, onBusyChange, enabled]);
   const center =
     pair.centerDistance ??
     (dimensions(pair.drive).flange + dimensions(pair.driven).flange) / 2 +

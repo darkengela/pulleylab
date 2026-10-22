@@ -1,5 +1,7 @@
--- Apply once to the Neon database. This file only creates missing tables.
--- Do not drop or rewrite existing production data.
+-- Apply once to the Neon database. Statements create missing tables and columns.
+-- A $10 payment is 30 days of unlimited generation and download, measured from
+-- entitlements.created_at. The update below extends an older 7-day fit window
+-- to 30 days from that payment. It does not delete rows or change who paid.
 
 CREATE TABLE IF NOT EXISTS designs (
   id TEXT PRIMARY KEY,
@@ -83,3 +85,13 @@ CREATE TABLE IF NOT EXISTS auth_sessions (
 ALTER TABLE entitlements ADD COLUMN IF NOT EXISTS google_sub TEXT;
 CREATE INDEX IF NOT EXISTS entitlements_google_sub_idx ON entitlements (google_sub);
 CREATE INDEX IF NOT EXISTS accounts_email_idx ON accounts (email);
+
+-- Saved generations belong to the verified Google account, not only the checkout row.
+ALTER TABLE designs ADD COLUMN IF NOT EXISTS google_sub TEXT;
+ALTER TABLE designs ADD COLUMN IF NOT EXISTS entitlement_id TEXT;
+ALTER TABLE designs ADD COLUMN IF NOT EXISTS upload_grant_hash TEXT;
+CREATE INDEX IF NOT EXISTS designs_google_sub_idx ON designs (google_sub);
+
+UPDATE entitlements
+SET adjustment_deadline = created_at + interval '30 days'
+WHERE adjustment_deadline < created_at + interval '30 days';

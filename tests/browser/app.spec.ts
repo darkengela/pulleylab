@@ -21,7 +21,7 @@ test('build, inspect, download, change dimensions, and reload settings', async (
   }
 
   await step.click();
-  await expect(page.getByRole('dialog')).toContainText('$5');
+  await expect(page.getByRole('dialog')).toContainText('$10');
   await expect(page.getByRole('dialog')).toContainText('STEP and STL');
   await page.getByRole('button', { name: 'Close dialog' }).click();
   await page.getByRole('spinbutton', { name: 'Tooth count', exact: true }).fill('36');
@@ -72,7 +72,7 @@ test('shared dimensions work on a phone without overflow', async ({ page }) => {
   );
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.getByRole('button', { name: 'STL', exact: true }).click();
-  await expect(page.getByRole('dialog')).toContainText('$5');
+  await expect(page.getByRole('dialog')).toContainText('$10');
   await page.getByRole('button', { name: 'Close dialog' }).click();
   await page.screenshot({ path: 'test-results/mobile.png', fullPage: true });
 });
@@ -128,7 +128,7 @@ test('live OD, shared nylon finish, and a complete drive/driven pair', async ({
     'true',
   );
   await zip.click();
-  await expect(page.getByRole('dialog')).toContainText('$5');
+  await expect(page.getByRole('dialog')).toContainText('$10');
   await expect(page.getByRole('dialog')).toContainText('two designs');
   await page.getByRole('button', { name: 'Close dialog' }).click();
   await page.getByRole('button', { name: 'Share build', exact: true }).click();

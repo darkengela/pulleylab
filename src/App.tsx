@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { Link } from 'react-router-dom';
 import {
@@ -46,16 +46,15 @@ import {
   loadAccount,
   nextCheckoutBusy,
   paymentReturnMessage,
-  readGrants,
   recoverPurchase,
   returnSessionId,
+  saveGeneratedDesign,
   signInHref,
   signOut,
   startCheckout,
   verifyDownload,
 } from './paywall/client';
-import type { SavedDesign } from './paywall/client';
-import { designKey } from './paywall/access';
+import type { AccountSnapshot, SavedDesign } from './paywall/client';
 type NumberKey = Exclude<
   keyof Parameters,
   | 'profile'
@@ -245,13 +244,14 @@ export default function App() {
     [checkoutDesign, setCheckoutDesign] = useState<Parameters | null>(null),
     [checkoutNote, setCheckoutNote] = useState(''),
     [checkoutBusy, setCheckoutBusy] = useState(false),
-    [grantVersion, setGrantVersion] = useState(0),
-    [recoverEmail, setRecoverEmail] = useState(''),
-    [recoverProof, setRecoverProof] = useState(''),
     [accountReady, setAccountReady] = useState(false),
     [googleOn, setGoogleOn] = useState(false),
     [signedIn, setSignedIn] = useState(false),
+    [accessActive, setAccessActive] = useState(false),
+    [accessUntil, setAccessUntil] = useState<string | null>(null),
     [savedDesigns, setSavedDesigns] = useState<SavedDesign[]>([]),
+    [recoverEmail, setRecoverEmail] = useState(''),
+    [recoverProof, setRecoverProof] = useState(''),
     [pendingSession, setPendingSession] = useState<string | null>(null),
     [saveMismatch, setSaveMismatch] = useState(false),
     [plannerOpen, setPlannerOpen] = useState(false),
@@ -267,13 +267,37 @@ export default function App() {
     worker = useRef<Worker | null>(null),
     timeout = useRef<ReturnType<typeof setTimeout> | undefined>(undefined),
     run = useRef(0),
-    errorSeq = useRef(1);
+    errorSeq = useRef(1),
+    savedKeys = useRef(new Set<string>()),
+    persistRef = useRef<(built: PulleyResult) => void>(() => {});
   const dirty = !result || JSON.stringify(p) !== JSON.stringify(result.parameters),
     canDownload = !!result && !dirty && !busy,
-    designUnlocked = useMemo(() => Boolean(readGrants()[designKey(p)]), [p, grantVersion]),
+    designUnlocked = signedIn && accessActive,
     d = dimensions(p),
     blocking = shaftFeatureError(p) || lighteningStatus(p);
   const showError = (text: string) => setErrorNotice({ id: ++errorSeq.current, text });
+  persistRef.current = (built) => {
+    if (!accessActive) return;
+    const key = JSON.stringify(built.parameters);
+    if (savedKeys.current.has(key)) return;
+    savedKeys.current.add(key);
+    void (async () => {
+      try {
+        const saved = await saveGeneratedDesign(built.parameters, { step: built.step, stl: built.stl });
+        if (saved.uploaded) setToast('Design saved to your account.');
+        const account = await loadAccount();
+        setAccountReady(true);
+        setGoogleOn(account.google);
+        setSignedIn(account.signedIn);
+        setAccessActive(account.accessActive);
+        setAccessUntil(account.accessUntil);
+        setSavedDesigns(account.designs);
+      } catch {
+        savedKeys.current.delete(key);
+        showError('This design was built, but it could not be saved to your account.');
+      }
+    })();
+  };
   const set = (key: keyof Parameters, value: number | string) => {
     setP((old) => ({ ...old, [key]: value }));
   };
@@ -300,6 +324,17 @@ export default function App() {
   function generate(event?: FormEvent) {
     event?.preventDefault();
     if (busy || pairBusy || !form.current?.reportValidity()) return;
+    if (accountReady && signedIn && !accessActive) {
+      try {
+        openCheckout(
+          validate(p),
+          'Your 30-day access has ended. $10 starts another 30 days of unlimited generations and downloads.',
+        );
+      } catch (e) {
+        showError((e as Error).message);
+      }
+      return;
+    }
     let settings: Parameters;
     try {
       settings = validate(p);
@@ -426,12 +461,14 @@ export default function App() {
     return () => window.removeEventListener('hashchange', openSharedBuild);
   }, []);
   useEffect(() => {
+    if (!accountReady) return;
+    if (signedIn && !accessActive) return;
     if (!initial.driven) generate();
     return () => {
       worker.current?.terminate();
       clearTimeout(timeout.current);
     };
-  }, []);
+  }, [accountReady, signedIn, accessActive]);
   useEffect(() => {
     try {
       localStorage.setItem('pulleylab:appearance:v1', JSON.stringify(appearance));
@@ -462,14 +499,17 @@ export default function App() {
       setAccountReady(true);
       setGoogleOn(account.google);
       setSignedIn(account.signedIn);
+      setAccessActive(account.accessActive);
+      setAccessUntil(account.accessUntil);
       setSavedDesigns(account.designs);
-      if (account.signedIn) setGrantVersion((version) => version + 1);
       if (flag === 'saved') {
         setModal('designs');
         setToast(
           account.designs.length
-            ? 'Signed in. Your paid designs are here.'
-            : 'Signed in. No paid design is saved for this Google account yet.',
+            ? 'Signed in. Your saved designs are here.'
+            : account.accessActive
+              ? 'Signed in. Generations during this 30-day access are saved to this Google account.'
+              : 'Signed in. No saved design is on this Google account yet.',
         );
       } else if (flag === 'mismatch') {
         setSaveMismatch(true);
@@ -485,6 +525,9 @@ export default function App() {
     };
   }, []);
   useEffect(() => {
+    if (result) persistRef.current(result);
+  }, [accessActive, result]);
+  useEffect(() => {
     const search = location.search;
     const sessionId = returnSessionId(search);
     const checkout = new URLSearchParams(search).get('checkout');
@@ -499,7 +542,15 @@ export default function App() {
       for (let attempt = 0; attempt < 5 && !stop; attempt++) {
         const claimed = await claimSession(sessionId);
         if (claimed === 'unlocked') {
-          setGrantVersion((version) => version + 1);
+          const account = await loadAccount();
+          if (!stop) {
+            setAccountReady(true);
+            setGoogleOn(account.google);
+            setSignedIn(account.signedIn);
+            setAccessActive(account.accessActive);
+            setAccessUntil(account.accessUntil);
+            setSavedDesigns(account.designs);
+          }
           setToast(paymentReturnMessage(true));
           return;
         }
@@ -566,6 +617,25 @@ export default function App() {
     setCheckoutNote(note);
     setModal('checkout');
   };
+  const rememberAccount = (account: AccountSnapshot) => {
+    setAccountReady(true);
+    setGoogleOn(account.google);
+    setSignedIn(account.signedIn);
+    setAccessActive(account.accessActive);
+    setAccessUntil(account.accessUntil);
+    setSavedDesigns(account.designs);
+  };
+  const accessEnded = () => {
+    showError('Your 30-day access has ended. A new $10 payment is required to generate or download.');
+    try {
+      openCheckout(
+        validate(p),
+        'Your 30-day access has ended. $10 starts another 30 days of unlimited generations and downloads.',
+      );
+    } catch {
+      setModal('checkout');
+    }
+  };
   const authorize = async (designs: Parameters[], note = '') => {
     track('export_click');
     for (const design of designs) {
@@ -575,24 +645,8 @@ export default function App() {
         return false;
       }
       if (verdict === 'expired') {
-        const account = await loadAccount();
-        setGoogleOn(account.google);
-        setSignedIn(account.signedIn);
-        setSavedDesigns(account.designs);
-        setAccountReady(true);
-        if (account.signedIn) {
-          setGrantVersion((version) => version + 1);
-          const again = await verifyDownload(design);
-          if (again === 'allowed') continue;
-        }
-        if (account.google) {
-          showError('Sign in with Google to download this design.');
-          setSaveMismatch(false);
-          setModal('save');
-        } else {
-          showError('This download link expired. Recover with the checkout email.');
-          setModal('recover');
-        }
+        rememberAccount(await loadAccount());
+        accessEnded();
         return false;
       }
       if (verdict !== 'allowed') {
@@ -613,33 +667,11 @@ export default function App() {
     } catch (error) {
       const message = (error as Error).message;
       if (message === 'expired') {
-        const account = await loadAccount();
-        setGoogleOn(account.google);
-        setSignedIn(account.signedIn);
-        setSavedDesigns(account.designs);
-        if (account.signedIn) {
-          setGrantVersion((version) => version + 1);
-          try {
-            const file = await fileForDownload(result.parameters, type, result[type]);
-            saveFile(file, filename(result.parameters, type));
-            track('download_completed');
-            setToast(`${type.toUpperCase()} downloaded`);
-            return;
-          } catch {
-            // The refreshed grant still cannot download this file.
-          }
-        }
-        if (account.google) {
-          showError('Sign in with Google to download this design.');
-          setSaveMismatch(false);
-          setModal('save');
-        } else {
-          showError('This download link expired. Recover with the checkout email.');
-          setModal('recover');
-        }
+        rememberAccount(await loadAccount());
+        accessEnded();
         return;
       }
-      if (message === 'locked') {
+      if (message === 'locked' || message === 'signin') {
         openCheckout(result.parameters);
         return;
       }
@@ -665,9 +697,8 @@ export default function App() {
         proof.startsWith('cs_') ? { sessionId: proof } : proof ? { code: proof } : {},
       );
       if (result.grants?.length) {
-        setGrantVersion((version) => version + 1);
         setModal(null);
-        setToast('Purchase restored. You can download the unlocked design.');
+        setToast('Purchase restored. You have 30 days of unlimited generations and downloads.');
         return;
       }
       showError(result.error || 'That purchase could not be verified.');
@@ -681,7 +712,7 @@ export default function App() {
       setPair(null);
       setResult(null);
       setModal(null);
-      setToast('Saved design loaded. Generate, then download.');
+      setToast(accessActive ? 'Saved design loaded.' : 'Saved design loaded. Access has ended, so a new generation needs another $10 payment.');
     } catch (e) {
       showError((e as Error).message);
     }
@@ -694,8 +725,16 @@ export default function App() {
       showError((e as Error).message);
       return;
     }
+    if (!accessActive) {
+      showError('Your 30-day access has ended. A new $10 payment is required to download.');
+      openCheckout(
+        parameters,
+        'Your 30-day access has ended. $10 starts another 30 days of unlimited generations and downloads.',
+      );
+      return;
+    }
     try {
-      const file = await downloadStoredFile(parameters, kind);
+      const file = await downloadStoredFile(design.designId, kind);
       if (!file) {
         setP(parameters);
         setPair(null);
@@ -709,12 +748,9 @@ export default function App() {
     } catch (error) {
       const message = (error as Error).message;
       if (message === 'expired') {
-        const account = await loadAccount();
-        setSignedIn(account.signedIn);
-        setSavedDesigns(account.designs);
-        if (account.signedIn) setGrantVersion((version) => version + 1);
-        showError('Sign in with Google again, then download this design.');
-        setModal(account.signedIn ? 'designs' : 'save');
+        rememberAccount(await loadAccount());
+        showError('Your 30-day access has ended. A new $10 payment is required to download.');
+        openCheckout(parameters);
         return;
       }
       showError('Could not download this design.');
@@ -723,8 +759,9 @@ export default function App() {
   const leaveAccount = async () => {
     await signOut();
     setSignedIn(false);
+    setAccessActive(false);
+    setAccessUntil(null);
     setSavedDesigns([]);
-    setGrantVersion((version) => version + 1);
     setModal(null);
     setToast('Signed out');
   };
@@ -961,6 +998,21 @@ export default function App() {
             <RotateCcw size={16} />
           </button>
         </div>
+        {accountReady && googleOn && signedIn && (
+          <button className="tool-popover-button" type="button" onClick={() => setModal('designs')}>
+            Designs
+          </button>
+        )}
+        {accountReady && googleOn &&
+          (signedIn ? (
+            <button className="account-pill" type="button" onClick={leaveAccount}>
+              Sign out
+            </button>
+          ) : (
+            <a className="account-pill" href={signInHref(pendingSession)}>
+              Login
+            </a>
+          ))}
         <input
           ref={file}
           type="file"
@@ -1160,13 +1212,18 @@ export default function App() {
               appearance={appearance}
               onAppearanceChange={setAppearance}
               onBusyChange={setPairBusy}
+              enabled={accountReady && (!signedIn || accessActive)}
               onBack={() => setPair(null)}
               dirty={JSON.stringify(p) !== JSON.stringify(pair.drive)}
               onError={showError}
+              onGenerated={(drive, driven) => {
+                persistRef.current(drive);
+                persistRef.current(driven);
+              }}
               beforeDownload={() =>
                 authorize(
                   [pair.drive, pair.driven],
-                  'A pair is two designs. $5 unlocks one profile and tooth count.',
+                  'A pair is two designs. Both are included during 30 days of access.',
                 )
               }
             />
@@ -1210,12 +1267,14 @@ export default function App() {
                     <p>
                       {busy
                         ? designUnlocked
-                          ? 'This design is unlocked. Building the solid…'
+                          ? 'Access is open. Building the solid…'
                           : 'Building the solid…'
                         : dirty && result
                           ? 'Settings changed. Generate to update the model.'
                           : designUnlocked && result
-                            ? 'This design is unlocked. Download STEP or STL.'
+                            ? 'Access is open. Download STEP or STL. This design is saved to your account.'
+                            : signedIn && !accessActive
+                              ? 'Your 30-day access has ended. $10 starts another 30 days.'
                             : result
                               ? `Generated in ${result.seconds.toFixed(1)}s`
                               : 'Generate a pulley, then download STEP or STL.'}
@@ -1243,25 +1302,16 @@ export default function App() {
                     <span>FILE NAME</span>
                     <code title={filename(p, 'step')}>{filename(p, 'step')}</code>
                   </div>
-                  {accountReady && googleOn && (
-                    <>
-                      {signedIn ? (
-                        <button
-                          type="button"
-                          className="button glass account-link"
-                          onClick={() => setModal('designs')}
-                        >
-                          Your designs
-                        </button>
-                      ) : (
-                        <a className="button glass account-link" href={signInHref(null)}>
-                          Sign in with Google
-                        </a>
-                      )}
-                      <p className="account-note">
-                        Paid designs are saved to the Google account that uses the Stripe receipt email.
-                      </p>
-                    </>
+                  {designUnlocked && (
+                    <p className="access-mark">
+                      Unlocked until{' '}
+                      {accessUntil
+                        ? new Date(accessUntil).toLocaleDateString(undefined, {
+                            month: 'short',
+                            day: 'numeric',
+                          })
+                        : 'the access window ends'}
+                    </p>
                   )}
                   {accountReady && !googleOn && (
                     <button type="button" className="recover-link" onClick={() => setModal('recover')}>
@@ -1299,20 +1349,19 @@ export default function App() {
         </div>
       )}
       {modal === 'checkout' && checkoutDesign && (
-        <Modal title="Unlock this design" onClose={() => setModal(null)}>
-          <p className="pay-price">$5</p>
+        <Modal title="30 days of access" onClose={() => setModal(null)}>
+          <p className="pay-price">$10</p>
           <p>
-            One profile and tooth count ({profileLabel(checkoutDesign.profile)}, {checkoutDesign.teeth}{' '}
-            teeth), including STEP and STL. For 7 days you can change the bore, D-shaft flat, and
-            clearance on this design. A different profile or tooth count is a new purchase.
+            30 days of unlimited generations and downloads, including STEP and STL. Any profile and
+            tooth count. Saved designs stay on the Google account that matches the Stripe receipt.
           </p>
           {accountReady && !googleOn ? (
-            <p>Download it again from this browser after payment.</p>
+            <p>Download again from this browser after payment.</p>
           ) : (
             <p>
               {signedIn
-                ? 'After payment, this design is saved to your Google account when the Stripe receipt email matches it.'
-                : 'After payment, sign in with Google once, using the same email Stripe collects. You can download it again on any browser.'}
+                ? 'After payment, every pulley you generate is saved to this Google account when the Stripe receipt email matches it.'
+                : 'After payment, sign in with Google once, using the same email Stripe collects. You can open saved designs on any browser.'}
             </p>
           )}
           {checkoutNote && <p>{checkoutNote}</p>}
@@ -1369,7 +1418,7 @@ export default function App() {
           <p>
             {saveMismatch
               ? 'That Google account does not match the Stripe receipt email, so this purchase was not saved to it. Sign in with the Google account for that email.'
-              : 'Payment is on the Stripe receipt. Sign in with Google once, using that same email, and this profile and tooth count stay on the account. You can download STEP or STL on any browser. For 7 days, bore, D-shaft flat, and clearance can still change.'}
+              : 'Payment is on the Stripe receipt. Sign in with Google once, using that same email, and this account gets 30 days of unlimited generations and downloads.'}
           </p>
           <a className="download-button" href={signInHref(pendingSession)}>
             Sign in with Google
@@ -1378,9 +1427,20 @@ export default function App() {
       )}
       {modal === 'designs' && (
         <Modal title="Your designs" onClose={() => setModal(null)}>
+          <p className={accessActive ? 'access-mark' : undefined}>
+            {accessActive
+              ? `Access is open until ${
+                  accessUntil
+                    ? new Date(accessUntil).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+                    : 'the end of this 30-day window'
+                }. New generations and downloads are included.`
+              : savedDesigns.length
+                ? 'Your 30-day access has ended. These designs stay listed. A new $10 payment is required to generate or download again.'
+                : '$10 starts 30 days of unlimited generations and downloads. Saved designs stay on this Google account.'}
+          </p>
           {savedDesigns.length === 0 ? (
             <p>
-              No paid design is saved for this Google account. Sign in with the Google account whose
+              No design is saved for this Google account yet. Sign in with the Google account whose
               email matches the Stripe receipt.
             </p>
           ) : (
@@ -1393,9 +1453,14 @@ export default function App() {
                       : `${design.profile} · ${design.teeth} teeth`}
                   </h3>
                   <p>
-                    {new Date(design.adjustmentDeadline).getTime() > Date.now()
-                      ? `Bore, D-flat, and clearance can change until ${new Date(design.adjustmentDeadline).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}.`
-                      : 'Fit changes are closed. Downloads of this design stay available.'}
+                    Saved{' '}
+                    {design.createdAt
+                      ? new Date(design.createdAt).toLocaleDateString(undefined, {
+                          month: 'short',
+                          day: 'numeric',
+                        })
+                      : 'on this account'}
+                    .{design.hasStep || design.hasStl ? ' STEP and STL are stored.' : ' Generate once to store the files.'}
                   </p>
                   <div className="saved-actions">
                     <button type="button" onClick={() => openSaved(design)}>
@@ -1412,9 +1477,6 @@ export default function App() {
               ))}
             </ul>
           )}
-          <button type="button" className="recover-link" onClick={leaveAccount}>
-            Sign out
-          </button>
         </Modal>
       )}
       {modal === 'help' && (
