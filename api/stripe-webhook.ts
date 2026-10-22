@@ -1,6 +1,7 @@
 import Stripe from 'stripe';
-import { ADJUSTMENT_MS, fulfillmentAction, type PaymentFact } from '../src/paywall/access.js';
+import { fulfillmentAction, type PaymentFact } from '../src/paywall/access.js';
 import { sql } from './db.js';
+import { grantPaidOrder } from './fulfill.js';
 
 type StripeObject = Record<string, unknown> & {
   metadata?: Record<string, string> | null;
@@ -62,33 +63,7 @@ export async function POST(request: Request) {
   const action = fulfillmentAction(fact, new Set(), new Set(existing.length ? [fact.orderId] : []));
   const email = (fact.email || '').trim().toLowerCase();
   if (action === 'grant') {
-    const designs = (await db('SELECT profile, teeth, parameters FROM designs WHERE id = $1', [
-      fact.designId,
-    ])) as { profile: string; teeth: number; parameters: unknown }[];
-    const design = designs[0];
-    await db(
-      `INSERT INTO entitlements
-        (id, order_id, design_id, email, profile, teeth, parameters, adjustment_deadline)
-       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)
-       ON CONFLICT (order_id) DO NOTHING`,
-      [
-        crypto.randomUUID(),
-        fact.orderId,
-        fact.designId,
-        email,
-        design?.profile ?? '',
-        design?.teeth ?? 0,
-        JSON.stringify(design?.parameters ?? {}),
-        new Date(Date.now() + ADJUSTMENT_MS).toISOString(),
-      ],
-    );
-    await db('UPDATE orders SET status = $1, email = COALESCE(NULLIF($2, \'\'), email) WHERE id = $3', [
-      'paid',
-      email,
-      fact.orderId,
-    ]);
-    if (email)
-      await db('UPDATE designs SET email = $1 WHERE id = $2 AND email IS NULL', [email, fact.designId]);
+    await grantPaidOrder(db, { orderId: fact.orderId, designId: fact.designId, email });
   } else if (action === 'fail') {
     await db('UPDATE orders SET status = $1 WHERE id = $2 AND status <> $3', ['failed', fact.orderId, 'paid']);
   } else if (email) {

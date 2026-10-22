@@ -7,6 +7,10 @@ CREATE TABLE IF NOT EXISTS designs (
   teeth INTEGER NOT NULL,
   parameters JSONB NOT NULL,
   email TEXT,
+  step_blob_path TEXT,
+  stl_blob_path TEXT,
+  step_file_parameters JSONB,
+  stl_file_parameters JSONB,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -55,3 +59,8 @@ CREATE TABLE IF NOT EXISTS recovery_codes (
 
 CREATE INDEX IF NOT EXISTS entitlements_email_idx ON entitlements (email);
 CREATE INDEX IF NOT EXISTS entitlements_grant_hash_idx ON entitlements (grant_hash);
+
+ALTER TABLE designs ADD COLUMN IF NOT EXISTS step_blob_path TEXT;
+ALTER TABLE designs ADD COLUMN IF NOT EXISTS stl_blob_path TEXT;
+ALTER TABLE designs ADD COLUMN IF NOT EXISTS step_file_parameters JSONB;
+ALTER TABLE designs ADD COLUMN IF NOT EXISTS stl_file_parameters JSONB;

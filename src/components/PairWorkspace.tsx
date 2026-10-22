@@ -8,6 +8,7 @@ import type { Appearance } from '../appearance';
 import type { PulleyResult } from '../cad/model';
 import type { PulleyPair } from '../cad/ratio';
 import { boreLabel, buildData, dimensions, filename, profileLabel } from '../cad/parameters';
+import { fileForDownload } from '../paywall/client';
 export function pairFilename(pair: PulleyPair) {
   return (
     filename(pair.drive)
@@ -123,9 +124,15 @@ export default function PairWorkspace({
     try {
       const files: Record<string, Uint8Array> = {};
       for (const role of ['drive', 'driven'] as const)
-        for (const extension of ['step', 'stl'] as const)
+        for (const extension of ['step', 'stl'] as const) {
+          const file = await fileForDownload(
+            result[role].parameters,
+            extension,
+            result[role][extension],
+          );
           files[role.toUpperCase() + '_' + filename(result[role].parameters, extension)] =
-            new Uint8Array(await result[role][extension].arrayBuffer());
+            new Uint8Array(await file.arrayBuffer());
+        }
       files['pulleylabs_pair_settings.json'] = strToU8(
         JSON.stringify(
           buildData(pair.drive, appearance, pair.driven, pair.centerDistance),

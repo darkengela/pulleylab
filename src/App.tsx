@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { Link } from 'react-router-dom';
 import {
@@ -41,11 +41,16 @@ import type { Parameters, Profile, ScrewSize } from './cad/parameters';
 import type { PulleyResult } from './cad/model';
 import {
   claimSession,
+  fileForDownload,
   nextCheckoutBusy,
+  paymentReturnMessage,
+  readGrants,
   recoverPurchase,
+  returnSessionId,
   startCheckout,
   verifyDownload,
 } from './paywall/client';
+import { designKey } from './paywall/access';
 type NumberKey = Exclude<
   keyof Parameters,
   | 'profile'
@@ -233,6 +238,7 @@ export default function App() {
     [checkoutDesign, setCheckoutDesign] = useState<Parameters | null>(null),
     [checkoutNote, setCheckoutNote] = useState(''),
     [checkoutBusy, setCheckoutBusy] = useState(false),
+    [grantVersion, setGrantVersion] = useState(0),
     [recoverEmail, setRecoverEmail] = useState(''),
     [recoverProof, setRecoverProof] = useState(''),
     [plannerOpen, setPlannerOpen] = useState(false),
@@ -251,6 +257,7 @@ export default function App() {
     errorSeq = useRef(1);
   const dirty = !result || JSON.stringify(p) !== JSON.stringify(result.parameters),
     canDownload = !!result && !dirty && !busy,
+    designUnlocked = useMemo(() => Boolean(readGrants()[designKey(p)]), [p, grantVersion]),
     d = dimensions(p),
     blocking = shaftFeatureError(p) || lighteningStatus(p);
   const showError = (text: string) => setErrorNotice({ id: ++errorSeq.current, text });
@@ -433,26 +440,26 @@ export default function App() {
     setErrorNotice((current) => (current?.text === blocking ? current : { id: ++errorSeq.current, text: blocking }));
   }, [blocking]);
   useEffect(() => {
-    const params = new URLSearchParams(location.search);
-    const checkout = params.get('checkout');
-    const sessionId = params.get('session_id');
+    const search = location.search;
+    const sessionId = returnSessionId(search);
+    const checkout = new URLSearchParams(search).get('checkout');
     if (!checkout) return;
     history.replaceState(null, '', location.pathname + location.hash);
-    if (checkout === 'canceled') {
-      setToast('Checkout canceled. This design stays locked.');
+    if (!sessionId) {
+      if (checkout === 'canceled') setToast('Checkout canceled. This design stays locked.');
       return;
     }
-    if (checkout !== 'success' || !sessionId) return;
     let stop = false;
     (async () => {
       for (let attempt = 0; attempt < 5 && !stop; attempt++) {
         if (await claimSession(sessionId)) {
-          setToast('Payment received. You can download this design.');
+          setGrantVersion((version) => version + 1);
+          setToast(paymentReturnMessage(true));
           return;
         }
         await new Promise((resolve) => setTimeout(resolve, 1500));
       }
-      if (!stop) setToast('Payment is not confirmed yet. Downloads stay locked.');
+      if (!stop) setToast(paymentReturnMessage(false));
     })();
     return () => {
       stop = true;
@@ -529,9 +536,24 @@ export default function App() {
   const exportFile = async (type: 'step' | 'stl') => {
     if (!canDownload || !result) return;
     if (!(await authorize([result.parameters]))) return;
-    saveFile(result[type], filename(result.parameters, type));
-    track('download_completed');
-    setToast(`${type.toUpperCase()} downloaded`);
+    try {
+      const file = await fileForDownload(result.parameters, type, result[type]);
+      saveFile(file, filename(result.parameters, type));
+      track('download_completed');
+      setToast(`${type.toUpperCase()} downloaded`);
+    } catch (error) {
+      const message = (error as Error).message;
+      if (message === 'expired') {
+        showError('This download link expired. Recover the purchase with the checkout email.');
+        setModal('recover');
+        return;
+      }
+      if (message === 'locked') {
+        openCheckout(result.parameters);
+        return;
+      }
+      showError('Could not download this design.');
+    }
   };
   const continueCheckout = async () => {
     if (!checkoutDesign || checkoutBusy) return;
@@ -1042,12 +1064,16 @@ export default function App() {
                     </span>
                     <p>
                       {busy
-                        ? 'Building the solid…'
+                        ? designUnlocked
+                          ? 'This design is unlocked. Building the solid…'
+                          : 'Building the solid…'
                         : dirty && result
                           ? 'Settings changed. Generate to update the model.'
-                          : result
-                            ? `Generated in ${result.seconds.toFixed(1)}s`
-                            : 'Generate a pulley, then download STEP or STL.'}
+                          : designUnlocked && result
+                            ? 'This design is unlocked. Download STEP or STL.'
+                            : result
+                              ? `Generated in ${result.seconds.toFixed(1)}s`
+                              : 'Generate a pulley, then download STEP or STL.'}
                     </p>
                   </div>
                   <div className="export-buttons">

@@ -89,6 +89,53 @@ export function accessFromStoredOrder(order: { status: string } | null): 'grant'
   return 'none';
 }
 
+export type CheckoutSessionView = {
+  status?: string | null;
+  payment_status?: string | null;
+  amount_total?: number | null;
+  currency?: string | null;
+  metadata?: { order_id?: string; design_id?: string } | null;
+};
+
+/**
+ * The browser return URL is not payment proof. Grant only when Stripe reports
+ * a completed $5 usd session. Canceled and unpaid sessions stay locked.
+ */
+export function claimFromStripeSession(session: CheckoutSessionView | null): 'grant' | 'none' {
+  if (!session?.metadata?.order_id || !session.metadata.design_id) return 'none';
+  if (session.status !== 'complete' || session.payment_status !== 'paid') return 'none';
+  if (session.amount_total !== PRICE_CENTS || session.currency !== 'usd') return 'none';
+  return 'grant';
+}
+
+export function sessionMatchesOrder(
+  session: CheckoutSessionView | null,
+  order: { id: string; designId: string },
+) {
+  return (
+    session?.metadata?.order_id === order.id && session.metadata?.design_id === order.designId
+  );
+}
+
+const DESIGN_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/** Server-chosen private blob path. A client path is never accepted. */
+export function designFilePath(designId: string, kind: string) {
+  if (kind !== 'step' && kind !== 'stl') throw Error('Invalid file.');
+  if (!DESIGN_ID.test(designId)) throw Error('Invalid design.');
+  return `designs/${designId}.${kind}`;
+}
+
+/** The grant's design must be the one being stored. A price or a bare claim is not a grant. */
+export function authorizeStoredFile(input: {
+  grantDesignId: string;
+  requestedDesignId: string;
+  decisionAllowed: boolean;
+}): 'allow' | 'deny' {
+  if (!input.decisionAllowed || input.grantDesignId !== input.requestedDesignId) return 'deny';
+  return 'allow';
+}
+
 export function checkoutLine(priceId: string) {
   if (!priceId) throw Error('STRIPE_PRICE_ID is not set');
   return { price: priceId, quantity: 1 as const };

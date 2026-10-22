@@ -1,19 +1,23 @@
 import { readFileSync } from 'node:fs';
 import Stripe from 'stripe';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { SCHEMA_SQL, schemaStatements } from '../api/db';
 import { DEFAULTS } from '../src/cad/parameters';
-import { nextCheckoutBusy, startCheckout } from '../src/paywall/client';
+import { nextCheckoutBusy, paymentReturnMessage, readGrants, returnSessionId, startCheckout, claimSession, fileForDownload } from '../src/paywall/client';
 import {
   accessDecision,
   accessFromStoredOrder,
   applyPayment,
+  authorizeStoredFile,
   checkoutBlockedMessage,
   checkoutErrorMessage,
   checkoutLine,
+  claimFromStripeSession,
+  designFilePath,
   fitAdjustmentOnly,
   fulfillmentAction,
   recoveryDecision,
+  sessionMatchesOrder,
   type MemoryState,
   type PaymentFact,
 } from '../src/paywall/access';
@@ -230,5 +234,97 @@ describe('paywall decisions', () => {
     expect(nextCheckoutBusy(true, { type: 'pageshow', persisted: false })).toBe(true);
     expect(nextCheckoutBusy(false, { type: 'pageshow', persisted: false })).toBe(false);
     expect(nextCheckoutBusy(true, { type: 'focus', persisted: true })).toBe(true);
+  });
+
+  it('unlocks a paid Stripe session and keeps a canceled checkout locked', () => {
+    const paid = {
+      status: 'complete',
+      payment_status: 'paid',
+      amount_total: 500,
+      currency: 'usd',
+      metadata: { order_id: 'order-1', design_id: 'design-a' },
+    };
+    expect(returnSessionId('?checkout=success&session_id=cs_paid')).toBe('cs_paid');
+    expect(returnSessionId('?checkout=canceled')).toBeNull();
+    expect(returnSessionId('?checkout=success')).toBeNull();
+    expect(claimFromStripeSession(paid)).toBe('grant');
+    expect(sessionMatchesOrder(paid, { id: 'order-1', designId: 'design-a' })).toBe(true);
+    expect(sessionMatchesOrder(paid, { id: 'other', designId: 'design-a' })).toBe(false);
+    expect(claimFromStripeSession({ ...paid, status: 'open', payment_status: 'unpaid' })).toBe('none');
+    expect(claimFromStripeSession({ ...paid, status: 'expired', payment_status: 'unpaid' })).toBe('none');
+    expect(claimFromStripeSession({ ...paid, amount_total: 100 })).toBe('none');
+    expect(claimFromStripeSession(null)).toBe('none');
+    expect(paymentReturnMessage(true)).toContain('Download STEP or STL');
+    expect(paymentReturnMessage(false)).toContain('stay locked');
+  });
+
+  it('rejects a stored file the grant does not cover', () => {
+    const designId = '2da326e0-990a-438d-80ee-3b765c66b7ae';
+    expect(designFilePath(designId, 'step')).toBe(`designs/${designId}.step`);
+    expect(designFilePath(designId, 'stl')).toBe(`designs/${designId}.stl`);
+    expect(() => designFilePath('../secret', 'step')).toThrow('Invalid design.');
+    expect(() => designFilePath(designId, 'price')).toThrow('Invalid file.');
+    expect(
+      authorizeStoredFile({ grantDesignId: designId, requestedDesignId: designId, decisionAllowed: true }),
+    ).toBe('allow');
+    expect(
+      authorizeStoredFile({ grantDesignId: designId, requestedDesignId: 'other', decisionAllowed: true }),
+    ).toBe('deny');
+    expect(
+      authorizeStoredFile({ grantDesignId: designId, requestedDesignId: designId, decisionAllowed: false }),
+    ).toBe('deny');
+  });
+
+  it('remembers a paid return and does not store a grant for an unpaid one', async () => {
+    const memory = new Map<string, string>();
+    vi.stubGlobal('sessionStorage', {
+      getItem: (key: string) => memory.get(key) ?? null,
+      setItem: (key: string, value: string) => void memory.set(key, value),
+    });
+    const original = globalThis.fetch;
+    try {
+      globalThis.fetch = async () =>
+        Response.json({
+          status: 'paid',
+          grants: [{ profile: 'GT5', teeth: 20, token: 'grant-token', designId: 'design-a' }],
+        });
+      expect(await claimSession('cs_paid')).toBe(true);
+      expect(readGrants()['GT5:20']).toEqual({ token: 'grant-token', designId: 'design-a' });
+      globalThis.fetch = async () => Response.json({ status: 'pending' });
+      memory.clear();
+      expect(await claimSession('cs_open')).toBe(false);
+      expect(readGrants()).toEqual({});
+    } finally {
+      globalThis.fetch = original;
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('does not upload a design that has no grant and serves a stored file when one exists', async () => {
+    const memory = new Map<string, string>();
+    vi.stubGlobal('sessionStorage', {
+      getItem: (key: string) => memory.get(key) ?? null,
+      setItem: (key: string, value: string) => void memory.set(key, value),
+    });
+    const original = globalThis.fetch;
+    const local = new Blob(['local-step']);
+    try {
+      let calls = 0;
+      globalThis.fetch = async () => {
+        calls += 1;
+        return new Response('nope', { status: 500 });
+      };
+      expect(await fileForDownload({ ...DEFAULTS }, 'step', local)).toBe(local);
+      expect(calls).toBe(0);
+      memory.set(
+        'pulleylab:grants:v1',
+        JSON.stringify({ '8M:24': { token: 'grant-token', designId: 'design-a' } }),
+      );
+      globalThis.fetch = async () => new Response('stored-step', { status: 200 });
+      await expect((await fileForDownload({ ...DEFAULTS }, 'step', local)).text()).resolves.toBe('stored-step');
+    } finally {
+      globalThis.fetch = original;
+      vi.unstubAllGlobals();
+    }
   });
 });

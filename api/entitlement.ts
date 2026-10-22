@@ -1,6 +1,14 @@
+import Stripe from 'stripe';
 import { validate, type Parameters } from '../src/cad/parameters.js';
-import { GRANT_MS, accessDecision, accessFromStoredOrder } from '../src/paywall/access.js';
+import {
+  GRANT_MS,
+  accessDecision,
+  accessFromStoredOrder,
+  claimFromStripeSession,
+  sessionMatchesOrder,
+} from '../src/paywall/access.js';
 import { sql } from './db.js';
+import { grantPaidOrder } from './fulfill.js';
 import { hashGrant, newGrant } from './grant.js';
 
 type EntitlementRow = {
@@ -54,12 +62,41 @@ export async function POST(request: Request) {
   }
   const db = sql();
   if (body.sessionId) {
-    const orders = (await db('SELECT id, status FROM orders WHERE stripe_session_id = $1', [
-      body.sessionId,
-    ])) as { id: string; status: string }[];
-    const access = accessFromStoredOrder(orders[0] ? { status: orders[0].status } : null);
-    if (access !== 'grant') return Response.json({ status: access === 'pending' ? 'pending' : 'none' });
-    const rows = (await db('SELECT * FROM entitlements WHERE order_id = $1', [orders[0].id])) as EntitlementRow[];
+    const orders = (await db(
+      'SELECT id, status, design_id FROM orders WHERE stripe_session_id = $1',
+      [body.sessionId],
+    )) as { id: string; status: string; design_id: string }[];
+    const order = orders[0];
+    if (!order) return Response.json({ status: 'none' });
+    if (order.status !== 'paid') {
+      const key = process.env.STRIPE_SECRET_KEY;
+      if (!key) return Response.json({ status: 'pending' });
+      let session: Stripe.Checkout.Session;
+      try {
+        session = await new Stripe(key).checkout.sessions.retrieve(body.sessionId);
+      } catch {
+        return Response.json({ status: 'none' });
+      }
+      const view = {
+        status: session.status,
+        payment_status: session.payment_status,
+        amount_total: session.amount_total,
+        currency: session.currency,
+        metadata: session.metadata,
+      };
+      if (!sessionMatchesOrder(view, { id: order.id, designId: order.design_id }))
+        return Response.json({ status: 'none' });
+      if (claimFromStripeSession(view) !== 'grant')
+        return Response.json({ status: order.status === 'pending' ? 'pending' : 'none' });
+      await grantPaidOrder(db, {
+        orderId: order.id,
+        designId: order.design_id,
+        email: session.customer_details?.email || session.customer_email,
+      });
+    }
+    const access = accessFromStoredOrder({ status: 'paid' });
+    if (access !== 'grant') return Response.json({ status: 'none' });
+    const rows = (await db('SELECT * FROM entitlements WHERE order_id = $1', [order.id])) as EntitlementRow[];
     if (!rows.length) return Response.json({ status: 'pending' });
     return Response.json({ status: 'paid', grants: [await mint(rows[0])] });
   }

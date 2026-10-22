@@ -1,4 +1,5 @@
 import { track } from '@vercel/analytics';
+import { upload } from '@vercel/blob/client';
 import type { Parameters } from '../cad/parameters';
 import { designKey } from './access';
 
@@ -74,6 +75,19 @@ export async function startCheckout(parameters: Parameters) {
   return body.url;
 }
 
+/** Only a successful Checkout return carries a session id. Canceled stays locked. */
+export function returnSessionId(search: string) {
+  const params = new URLSearchParams(search);
+  if (params.get('checkout') !== 'success') return null;
+  return params.get('session_id') || null;
+}
+
+export function paymentReturnMessage(claimed: boolean) {
+  return claimed
+    ? 'Payment received. This design is unlocked. Download STEP or STL.'
+    : 'Payment is not confirmed yet. Downloads stay locked.';
+}
+
 export async function claimSession(sessionId: string) {
   try {
     const response = await fetch('/api/entitlement', {
@@ -85,7 +99,11 @@ export async function claimSession(sessionId: string) {
     const body = (await response.json()) as { status?: string; grants?: GrantPayload[] };
     if (body.status !== 'paid' || !body.grants?.length) return false;
     remember(body.grants);
-    track('purchase_completed');
+    try {
+      track('purchase_completed');
+    } catch {
+      // Analytics must not hide a completed purchase.
+    }
     return true;
   } catch {
     return false;
@@ -109,4 +127,43 @@ export async function recoverPurchase(email: string, proof: { sessionId?: string
     return body;
   }
   return body;
+}
+
+const FILE_URL = '/api/design-file';
+
+/** Prefer the private stored file. If it is missing, upload the browser-generated file once. */
+export async function fileForDownload(parameters: Parameters, kind: 'step' | 'stl', local: Blob) {
+  const grant = readGrants()[designKey(parameters)];
+  if (!grant) return local;
+  const claim = { grant: grant.token, designId: grant.designId, kind, parameters };
+  try {
+    const response = await fetch(FILE_URL, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ action: 'download', ...claim }),
+    });
+    if (response.status === 403) {
+      const body = (await response.json().catch(() => ({}))) as { reason?: string };
+      throw Error(body.reason === 'expired' ? 'expired' : 'locked');
+    }
+    if (response.ok) return response.blob();
+    await upload(`designs/${grant.designId}.${kind}`, local, {
+      access: 'private',
+      handleUploadUrl: FILE_URL,
+      contentType: kind === 'step' ? 'application/step' : 'model/stl',
+      clientPayload: JSON.stringify(claim),
+    });
+    const commit = await fetch(FILE_URL, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ action: 'commit', ...claim }),
+    });
+    if (commit.status === 403) {
+      const body = (await commit.json().catch(() => ({}))) as { reason?: string };
+      throw Error(body.reason === 'expired' ? 'expired' : 'locked');
+    }
+  } catch (error) {
+    if (error instanceof Error && (error.message === 'locked' || error.message === 'expired')) throw error;
+  }
+  return local;
 }
