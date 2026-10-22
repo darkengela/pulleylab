@@ -1058,6 +1058,55 @@ footer a:hover {
 .recover-link:hover {
   color: #e4e4e4;
 }
+a.download-button {
+  text-decoration: none;
+}
+.account-link {
+  width: 100%;
+  margin-top: 12px;
+  text-decoration: none;
+  color: #f2f2f2;
+}
+.account-note {
+  margin: 8px 0 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #9a9a9a;
+}
+.saved-list {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+}
+.saved-list li {
+  padding: 14px 0;
+  border-top: 1px solid #e3e3e319;
+}
+.saved-list h3 {
+  margin: 0 0 4px;
+  font-size: 15px;
+  font-weight: 600;
+}
+.saved-list p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #b0b0b0;
+}
+.saved-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+.saved-actions button {
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 8px;
+  background: #dfdfdf14;
+  color: #eee;
+  font-size: 12px;
+}
 .modal {
   max-width: min(540px, calc(100vw - 32px));
   max-height: 85dvh;

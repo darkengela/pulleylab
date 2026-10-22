@@ -32,9 +32,29 @@ Set these on the Vercel project. Do not put the values in source files.
 - A different profile or tooth count is a new $5 design.
 - A failed or canceled Checkout does not grant access. A failed export does not spend the purchase.
 
+## Saving a design
+
+Google sign-in is how a customer keeps a purchase and opens it on another browser. The server checks the Google ID token, then attaches paid designs whose stored Stripe email is that Google email. A typed email, a success URL, or a grant saved in the browser does not unlock a design by itself.
+
+Set these on the PulleyLab Vercel project (`prj_gSPGdL9q9Bo3Va4qL99ATv5vzupL`) for Production and Preview. Do not put the values in source files.
+
+- `GOOGLE_CLIENT_ID`
+- `GOOGLE_CLIENT_SECRET`
+
+In Google Cloud, for this site only:
+
+1. OAuth consent screen: External, app name PulleyLab, authorized domain `zerocad.ai`. Publish the app. While it stays in Testing, only listed test users can sign in.
+2. Create an OAuth client ID, application type Web application.
+3. Authorized JavaScript origin: `https://pulleylab.zerocad.ai`
+4. Authorized redirect URI: `https://pulleylab.zerocad.ai/api/google/callback`
+
+Until both variables are set, the page keeps a small “Recover with checkout email” path. That path checks a Checkout session id or recovery code on the server. It is not shown once Google sign-in is configured.
+
+`schema.sql` adds `accounts`, `auth_sessions`, and `entitlements.google_sub`. The API applies those statements on first use. Each statement is `IF NOT EXISTS`, so running it again does not rewrite existing rows.
+
 ## Recovery
 
-The buyer enters the email Stripe collected plus either the Checkout session id (`cs_…`) or a one-time code. The server checks the session against Stripe, or checks a hashed code. The code is not returned to the browser. This project does not include a mail provider, so a code is stored but not emailed until one is added; the session-id check works with the four variables above.
+The buyer enters the email Stripe collected plus either the Checkout session id (`cs_…`) or a one-time code. The server checks the session against Stripe, or checks a hashed code. The code is not returned to the browser. This project does not include a mail provider, so a code is stored but not emailed until one is added; the session-id check works with the four variables above. Use this only when `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are unset.
 
 ## Local note
 

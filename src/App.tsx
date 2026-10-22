@@ -41,15 +41,20 @@ import type { Parameters, Profile, ScrewSize } from './cad/parameters';
 import type { PulleyResult } from './cad/model';
 import {
   claimSession,
+  downloadStoredFile,
   fileForDownload,
+  loadAccount,
   nextCheckoutBusy,
   paymentReturnMessage,
   readGrants,
   recoverPurchase,
   returnSessionId,
+  signInHref,
+  signOut,
   startCheckout,
   verifyDownload,
 } from './paywall/client';
+import type { SavedDesign } from './paywall/client';
 import { designKey } from './paywall/access';
 type NumberKey = Exclude<
   keyof Parameters,
@@ -234,13 +239,21 @@ export default function App() {
       initial.message ? { id: 1, text: initial.message } : null,
     ),
     [toast, setToast] = useState(''),
-    [modal, setModal] = useState<'help' | 'share' | 'checkout' | 'recover' | null>(null),
+    [modal, setModal] = useState<'help' | 'share' | 'checkout' | 'recover' | 'save' | 'designs' | null>(
+      null,
+    ),
     [checkoutDesign, setCheckoutDesign] = useState<Parameters | null>(null),
     [checkoutNote, setCheckoutNote] = useState(''),
     [checkoutBusy, setCheckoutBusy] = useState(false),
     [grantVersion, setGrantVersion] = useState(0),
     [recoverEmail, setRecoverEmail] = useState(''),
     [recoverProof, setRecoverProof] = useState(''),
+    [accountReady, setAccountReady] = useState(false),
+    [googleOn, setGoogleOn] = useState(false),
+    [signedIn, setSignedIn] = useState(false),
+    [savedDesigns, setSavedDesigns] = useState<SavedDesign[]>([]),
+    [pendingSession, setPendingSession] = useState<string | null>(null),
+    [saveMismatch, setSaveMismatch] = useState(false),
     [plannerOpen, setPlannerOpen] = useState(false),
     [task, setTask] = useState<null | 'details' | 'retainer' | 'clamp'>(null),
     [sheetBox, setSheetBox] = useState({ left: 12, top: 68, width: 392 });
@@ -440,6 +453,38 @@ export default function App() {
     setErrorNotice((current) => (current?.text === blocking ? current : { id: ++errorSeq.current, text: blocking }));
   }, [blocking]);
   useEffect(() => {
+    const flag = new URLSearchParams(location.search).get('account');
+    if (flag) history.replaceState(null, '', location.pathname + location.hash);
+    let stop = false;
+    (async () => {
+      const account = await loadAccount();
+      if (stop) return;
+      setAccountReady(true);
+      setGoogleOn(account.google);
+      setSignedIn(account.signedIn);
+      setSavedDesigns(account.designs);
+      if (account.signedIn) setGrantVersion((version) => version + 1);
+      if (flag === 'saved') {
+        setModal('designs');
+        setToast(
+          account.designs.length
+            ? 'Signed in. Your paid designs are here.'
+            : 'Signed in. No paid design is saved for this Google account yet.',
+        );
+      } else if (flag === 'mismatch') {
+        setSaveMismatch(true);
+        setModal('save');
+      } else if (flag === 'unpaid') {
+        setToast('That checkout is not paid, so it was not saved.');
+      } else if (flag === 'denied' || flag === 'unconfigured') {
+        setToast('Google sign-in did not finish.');
+      }
+    })();
+    return () => {
+      stop = true;
+    };
+  }, []);
+  useEffect(() => {
     const search = location.search;
     const sessionId = returnSessionId(search);
     const checkout = new URLSearchParams(search).get('checkout');
@@ -452,11 +497,19 @@ export default function App() {
     let stop = false;
     (async () => {
       for (let attempt = 0; attempt < 5 && !stop; attempt++) {
-        if (await claimSession(sessionId)) {
+        const claimed = await claimSession(sessionId);
+        if (claimed === 'unlocked') {
           setGrantVersion((version) => version + 1);
           setToast(paymentReturnMessage(true));
           return;
         }
+        if (claimed === 'signin' || claimed === 'mismatch') {
+          setPendingSession(sessionId);
+          setSaveMismatch(claimed === 'mismatch');
+          setModal('save');
+          return;
+        }
+        if (claimed !== 'pending') break;
         await new Promise((resolve) => setTimeout(resolve, 1500));
       }
       if (!stop) setToast(paymentReturnMessage(false));
@@ -522,8 +575,24 @@ export default function App() {
         return false;
       }
       if (verdict === 'expired') {
-        showError('This download link expired. Recover the purchase with the checkout email.');
-        setModal('recover');
+        const account = await loadAccount();
+        setGoogleOn(account.google);
+        setSignedIn(account.signedIn);
+        setSavedDesigns(account.designs);
+        setAccountReady(true);
+        if (account.signedIn) {
+          setGrantVersion((version) => version + 1);
+          const again = await verifyDownload(design);
+          if (again === 'allowed') continue;
+        }
+        if (account.google) {
+          showError('Sign in with Google to download this design.');
+          setSaveMismatch(false);
+          setModal('save');
+        } else {
+          showError('This download link expired. Recover with the checkout email.');
+          setModal('recover');
+        }
         return false;
       }
       if (verdict !== 'allowed') {
@@ -544,8 +613,30 @@ export default function App() {
     } catch (error) {
       const message = (error as Error).message;
       if (message === 'expired') {
-        showError('This download link expired. Recover the purchase with the checkout email.');
-        setModal('recover');
+        const account = await loadAccount();
+        setGoogleOn(account.google);
+        setSignedIn(account.signedIn);
+        setSavedDesigns(account.designs);
+        if (account.signedIn) {
+          setGrantVersion((version) => version + 1);
+          try {
+            const file = await fileForDownload(result.parameters, type, result[type]);
+            saveFile(file, filename(result.parameters, type));
+            track('download_completed');
+            setToast(`${type.toUpperCase()} downloaded`);
+            return;
+          } catch {
+            // The refreshed grant still cannot download this file.
+          }
+        }
+        if (account.google) {
+          showError('Sign in with Google to download this design.');
+          setSaveMismatch(false);
+          setModal('save');
+        } else {
+          showError('This download link expired. Recover with the checkout email.');
+          setModal('recover');
+        }
         return;
       }
       if (message === 'locked') {
@@ -574,6 +665,7 @@ export default function App() {
         proof.startsWith('cs_') ? { sessionId: proof } : proof ? { code: proof } : {},
       );
       if (result.grants?.length) {
+        setGrantVersion((version) => version + 1);
         setModal(null);
         setToast('Purchase restored. You can download the unlocked design.');
         return;
@@ -582,6 +674,59 @@ export default function App() {
     } catch (e) {
       showError((e as Error).message);
     }
+  };
+  const openSaved = (design: SavedDesign) => {
+    try {
+      setP(validate(design.parameters));
+      setPair(null);
+      setResult(null);
+      setModal(null);
+      setToast('Saved design loaded. Generate, then download.');
+    } catch (e) {
+      showError((e as Error).message);
+    }
+  };
+  const downloadSaved = async (design: SavedDesign, kind: 'step' | 'stl') => {
+    let parameters: Parameters;
+    try {
+      parameters = validate(design.parameters);
+    } catch (e) {
+      showError((e as Error).message);
+      return;
+    }
+    try {
+      const file = await downloadStoredFile(parameters, kind);
+      if (!file) {
+        setP(parameters);
+        setPair(null);
+        setResult(null);
+        setModal(null);
+        showError('This file is not stored yet. Generate the pulley, then download it.');
+        return;
+      }
+      saveFile(file, filename(parameters, kind));
+      setToast(`${kind.toUpperCase()} downloaded`);
+    } catch (error) {
+      const message = (error as Error).message;
+      if (message === 'expired') {
+        const account = await loadAccount();
+        setSignedIn(account.signedIn);
+        setSavedDesigns(account.designs);
+        if (account.signedIn) setGrantVersion((version) => version + 1);
+        showError('Sign in with Google again, then download this design.');
+        setModal(account.signedIn ? 'designs' : 'save');
+        return;
+      }
+      showError('Could not download this design.');
+    }
+  };
+  const leaveAccount = async () => {
+    await signOut();
+    setSignedIn(false);
+    setSavedDesigns([]);
+    setGrantVersion((version) => version + 1);
+    setModal(null);
+    setToast('Signed out');
   };
   const saveSettings = () => {
     try {
@@ -1098,9 +1243,31 @@ export default function App() {
                     <span>FILE NAME</span>
                     <code title={filename(p, 'step')}>{filename(p, 'step')}</code>
                   </div>
-                  <button type="button" className="recover-link" onClick={() => setModal('recover')}>
-                    Recover a purchase
-                  </button>
+                  {accountReady && googleOn && (
+                    <>
+                      {signedIn ? (
+                        <button
+                          type="button"
+                          className="button glass account-link"
+                          onClick={() => setModal('designs')}
+                        >
+                          Your designs
+                        </button>
+                      ) : (
+                        <a className="button glass account-link" href={signInHref(null)}>
+                          Sign in with Google
+                        </a>
+                      )}
+                      <p className="account-note">
+                        Paid designs are saved to the Google account that uses the Stripe receipt email.
+                      </p>
+                    </>
+                  )}
+                  {accountReady && !googleOn && (
+                    <button type="button" className="recover-link" onClick={() => setModal('recover')}>
+                      Recover with checkout email
+                    </button>
+                  )}
                 </div>
               </div>
             </>
@@ -1136,10 +1303,24 @@ export default function App() {
           <p className="pay-price">$5</p>
           <p>
             One profile and tooth count ({profileLabel(checkoutDesign.profile)}, {checkoutDesign.teeth}{' '}
-            teeth), including STEP and STL. Download it again anytime. For 7 days you can change the
-            bore, D-shaft flat, and clearance on this design.
+            teeth), including STEP and STL. For 7 days you can change the bore, D-shaft flat, and
+            clearance on this design. A different profile or tooth count is a new purchase.
           </p>
+          {accountReady && !googleOn ? (
+            <p>Download it again from this browser after payment.</p>
+          ) : (
+            <p>
+              {signedIn
+                ? 'After payment, this design is saved to your Google account when the Stripe receipt email matches it.'
+                : 'After payment, sign in with Google once, using the same email Stripe collects. You can download it again on any browser.'}
+            </p>
+          )}
           {checkoutNote && <p>{checkoutNote}</p>}
+          {googleOn && !signedIn && (
+            <a className="button glass account-link" href={signInHref(null)}>
+              Sign in with Google first
+            </a>
+          )}
           <button
             className="download-button"
             type="button"
@@ -1150,11 +1331,11 @@ export default function App() {
           </button>
         </Modal>
       )}
-      {modal === 'recover' && (
-        <Modal title="Recover a purchase" onClose={() => setModal(null)}>
+      {modal === 'recover' && !googleOn && (
+        <Modal title="Recover with checkout email" onClose={() => setModal(null)}>
           <p>
-            Enter the email Stripe collected. Add the Checkout session id (cs_…) or a recovery code.
-            An email by itself does not unlock a design.
+            Google sign-in is not set up yet. Enter the email Stripe collected and the Checkout
+            session id (cs_…) or a recovery code. An email by itself does not unlock a design.
           </p>
           <label className="field">
             <span>Email</span>
@@ -1180,6 +1361,59 @@ export default function App() {
           </label>
           <button className="download-button" type="button" onClick={submitRecovery}>
             Verify purchase
+          </button>
+        </Modal>
+      )}
+      {modal === 'save' && (
+        <Modal title="Save this design" onClose={() => setModal(null)}>
+          <p>
+            {saveMismatch
+              ? 'That Google account does not match the Stripe receipt email, so this purchase was not saved to it. Sign in with the Google account for that email.'
+              : 'Payment is on the Stripe receipt. Sign in with Google once, using that same email, and this profile and tooth count stay on the account. You can download STEP or STL on any browser. For 7 days, bore, D-shaft flat, and clearance can still change.'}
+          </p>
+          <a className="download-button" href={signInHref(pendingSession)}>
+            Sign in with Google
+          </a>
+        </Modal>
+      )}
+      {modal === 'designs' && (
+        <Modal title="Your designs" onClose={() => setModal(null)}>
+          {savedDesigns.length === 0 ? (
+            <p>
+              No paid design is saved for this Google account. Sign in with the Google account whose
+              email matches the Stripe receipt.
+            </p>
+          ) : (
+            <ul className="saved-list">
+              {savedDesigns.map((design) => (
+                <li key={design.designId}>
+                  <h3>
+                    {design.profile in PROFILES
+                      ? `${profileLabel(design.profile as Profile)} · ${design.teeth} teeth`
+                      : `${design.profile} · ${design.teeth} teeth`}
+                  </h3>
+                  <p>
+                    {new Date(design.adjustmentDeadline).getTime() > Date.now()
+                      ? `Bore, D-flat, and clearance can change until ${new Date(design.adjustmentDeadline).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}.`
+                      : 'Fit changes are closed. Downloads of this design stay available.'}
+                  </p>
+                  <div className="saved-actions">
+                    <button type="button" onClick={() => openSaved(design)}>
+                      Open
+                    </button>
+                    <button type="button" onClick={() => downloadSaved(design, 'step')}>
+                      STEP
+                    </button>
+                    <button type="button" onClick={() => downloadSaved(design, 'stl')}>
+                      STL
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+          <button type="button" className="recover-link" onClick={leaveAccount}>
+            Sign out
           </button>
         </Modal>
       )}

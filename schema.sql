@@ -64,3 +64,22 @@ ALTER TABLE designs ADD COLUMN IF NOT EXISTS step_blob_path TEXT;
 ALTER TABLE designs ADD COLUMN IF NOT EXISTS stl_blob_path TEXT;
 ALTER TABLE designs ADD COLUMN IF NOT EXISTS step_file_parameters JSONB;
 ALTER TABLE designs ADD COLUMN IF NOT EXISTS stl_file_parameters JSONB;
+
+-- Verified Google account. Email is the address from the ID token, not a typed value.
+CREATE TABLE IF NOT EXISTS accounts (
+  google_sub TEXT PRIMARY KEY,
+  email TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS auth_sessions (
+  token_hash TEXT PRIMARY KEY,
+  google_sub TEXT NOT NULL,
+  email TEXT NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+ALTER TABLE entitlements ADD COLUMN IF NOT EXISTS google_sub TEXT;
+CREATE INDEX IF NOT EXISTS entitlements_google_sub_idx ON entitlements (google_sub);
+CREATE INDEX IF NOT EXISTS accounts_email_idx ON accounts (email);

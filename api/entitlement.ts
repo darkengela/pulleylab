@@ -1,15 +1,10 @@
-import Stripe from 'stripe';
 import { validate, type Parameters } from '../src/cad/parameters.js';
-import {
-  GRANT_MS,
-  accessDecision,
-  accessFromStoredOrder,
-  claimFromStripeSession,
-  sessionMatchesOrder,
-} from '../src/paywall/access.js';
+import { accessDecision, googleAuthConfigured } from '../src/paywall/access.js';
 import { sql } from './db.js';
-import { grantPaidOrder } from './fulfill.js';
-import { hashGrant, newGrant } from './grant.js';
+import { hashGrant } from './grant.js';
+import { mintGrant } from './grants.js';
+import { attachSettledPurchase, linkAccountPurchases, settleCheckoutSession } from './purchase.js';
+import { currentAccount } from './session.js';
 
 type EntitlementRow = {
   id: string;
@@ -34,23 +29,6 @@ async function revisionsFor(id: string) {
   return rows.map((row) => row.parameters as unknown as Record<string, unknown>);
 }
 
-async function mint(row: EntitlementRow) {
-  const db = sql();
-  const grant = newGrant();
-  const expires = new Date(Date.now() + GRANT_MS).toISOString();
-  await db('UPDATE entitlements SET grant_hash = $1, grant_expires_at = $2 WHERE id = $3', [
-    grant.hash,
-    expires,
-    row.id,
-  ]);
-  return {
-    profile: row.profile,
-    teeth: Number(row.teeth),
-    token: grant.token,
-    designId: row.design_id,
-  };
-}
-
 export async function POST(request: Request) {
   if (!process.env.DATABASE_URL)
     return Response.json({ error: 'Payments are not configured.' }, { status: 503 });
@@ -62,43 +40,17 @@ export async function POST(request: Request) {
   }
   const db = sql();
   if (body.sessionId) {
-    const orders = (await db(
-      'SELECT id, status, design_id FROM orders WHERE stripe_session_id = $1',
-      [body.sessionId],
-    )) as { id: string; status: string; design_id: string }[];
-    const order = orders[0];
-    if (!order) return Response.json({ status: 'none' });
-    if (order.status !== 'paid') {
-      const key = process.env.STRIPE_SECRET_KEY;
-      if (!key) return Response.json({ status: 'pending' });
-      let session: Stripe.Checkout.Session;
-      try {
-        session = await new Stripe(key).checkout.sessions.retrieve(body.sessionId);
-      } catch {
-        return Response.json({ status: 'none' });
-      }
-      const view = {
-        status: session.status,
-        payment_status: session.payment_status,
-        amount_total: session.amount_total,
-        currency: session.currency,
-        metadata: session.metadata,
-      };
-      if (!sessionMatchesOrder(view, { id: order.id, designId: order.design_id }))
-        return Response.json({ status: 'none' });
-      if (claimFromStripeSession(view) !== 'grant')
-        return Response.json({ status: order.status === 'pending' ? 'pending' : 'none' });
-      await grantPaidOrder(db, {
-        orderId: order.id,
-        designId: order.design_id,
-        email: session.customer_details?.email || session.customer_email,
-      });
+    const settled = await settleCheckoutSession(body.sessionId);
+    if (settled.status !== 'paid') return Response.json({ status: settled.status });
+    if (googleAuthConfigured(process.env)) {
+      const identity = await currentAccount(request);
+      if (!identity) return Response.json({ status: 'paid', needsSignIn: true });
+      await linkAccountPurchases(identity);
+      const decision = await attachSettledPurchase(identity, settled);
+      if (decision !== 'attach')
+        return Response.json({ status: 'paid', needsSignIn: true, mismatch: true });
     }
-    const access = accessFromStoredOrder({ status: 'paid' });
-    if (access !== 'grant') return Response.json({ status: 'none' });
-    const rows = (await db('SELECT * FROM entitlements WHERE order_id = $1', [order.id])) as EntitlementRow[];
-    if (!rows.length) return Response.json({ status: 'pending' });
-    return Response.json({ status: 'paid', grants: [await mint(rows[0])] });
+    return Response.json({ status: 'paid', grants: [await mintGrant(settled.row)] });
   }
   if (!body.grant || !body.designId)
     return Response.json({ allowed: false, reason: 'design' });

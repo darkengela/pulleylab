@@ -1,5 +1,5 @@
 import Stripe from 'stripe';
-import { GRANT_MS, recoveryDecision } from '../src/paywall/access.js';
+import { GRANT_MS, recoveryAvailable, recoveryDecision } from '../src/paywall/access.js';
 import { sql } from './db.js';
 import { grantHashEquals, hashGrant, newGrant } from './grant.js';
 
@@ -44,6 +44,8 @@ async function issueGrants(email: string) {
 }
 
 export async function POST(request: Request) {
+  if (!recoveryAvailable(process.env))
+    return Response.json({ error: 'Sign in with Google to open saved designs.' }, { status: 403 });
   if (!process.env.DATABASE_URL || !process.env.STRIPE_SECRET_KEY)
     return Response.json({ error: 'Payments are not configured.' }, { status: 503 });
   let body: { email?: string; sessionId?: string; code?: string };

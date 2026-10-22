@@ -8,6 +8,7 @@ import {
   accessDecision,
   accessFromStoredOrder,
   applyPayment,
+  attachDecision,
   authorizeStoredFile,
   checkoutBlockedMessage,
   checkoutErrorMessage,
@@ -16,11 +17,18 @@ import {
   designFilePath,
   fitAdjustmentOnly,
   fulfillmentAction,
+  googleAuthConfigured,
+  googleIdentityFromClaims,
+  googleRedirectUriForHost,
+  recoveryAvailable,
   recoveryDecision,
   sessionMatchesOrder,
+  validCheckoutSessionId,
   type MemoryState,
   type PaymentFact,
 } from '../src/paywall/access';
+import { verifyGoogleIdToken } from '../api/google-token';
+import { createSign, generateKeyPairSync, type JsonWebKey } from 'node:crypto';
 
 const base = { ...DEFAULTS } as Record<string, unknown>;
 const entitlement = {
@@ -288,11 +296,17 @@ describe('paywall decisions', () => {
           status: 'paid',
           grants: [{ profile: 'GT5', teeth: 20, token: 'grant-token', designId: 'design-a' }],
         });
-      expect(await claimSession('cs_paid')).toBe(true);
+      expect(await claimSession('cs_paid')).toBe('unlocked');
       expect(readGrants()['GT5:20']).toEqual({ token: 'grant-token', designId: 'design-a' });
       globalThis.fetch = async () => Response.json({ status: 'pending' });
       memory.clear();
-      expect(await claimSession('cs_open')).toBe(false);
+      expect(await claimSession('cs_open')).toBe('pending');
+      expect(readGrants()).toEqual({});
+      globalThis.fetch = async () => Response.json({ status: 'paid', needsSignIn: true });
+      expect(await claimSession('cs_paid_unsigned')).toBe('signin');
+      expect(readGrants()).toEqual({});
+      globalThis.fetch = async () => Response.json({ status: 'paid', needsSignIn: true, mismatch: true });
+      expect(await claimSession('cs_paid_other')).toBe('mismatch');
       expect(readGrants()).toEqual({});
     } finally {
       globalThis.fetch = original;
@@ -326,5 +340,92 @@ describe('paywall decisions', () => {
       globalThis.fetch = original;
       vi.unstubAllGlobals();
     }
+  });
+
+  it('does not attach an unpaid session and attaches a paid session only to the verified Google email', () => {
+    const buyer = {
+      orderStatus: 'paid' as const,
+      purchaseEmail: 'buyer@example.com',
+      googleEmail: 'buyer@example.com',
+      emailVerified: true,
+    };
+    expect(attachDecision({ ...buyer, orderStatus: 'pending' })).toBe('deny');
+    expect(attachDecision({ ...buyer, orderStatus: 'failed' })).toBe('deny');
+    expect(attachDecision({ ...buyer, orderStatus: null })).toBe('deny');
+    expect(attachDecision({ ...buyer, emailVerified: false })).toBe('deny');
+    expect(attachDecision({ ...buyer, googleEmail: 'other@example.com' })).toBe('deny');
+    expect(attachDecision({ ...buyer, googleEmail: '' })).toBe('deny');
+    expect(attachDecision({ ...buyer, purchaseEmail: 'Buyer@Example.com' })).toBe('attach');
+    expect(recoveryAvailable({})).toBe(true);
+    expect(
+      recoveryAvailable({ GOOGLE_CLIENT_ID: 'client', GOOGLE_CLIENT_SECRET: 'secret' }),
+    ).toBe(false);
+    expect(googleAuthConfigured({ GOOGLE_CLIENT_ID: 'client' })).toBe(false);
+    expect(validCheckoutSessionId('cs_test_abc12345')).toBe(true);
+    expect(validCheckoutSessionId('cs_paid')).toBe(false);
+    expect(googleRedirectUriForHost('pulleylab.vercel.app')).toBe(
+      'https://pulleylab.zerocad.ai/api/google/callback',
+    );
+    expect(googleRedirectUriForHost('pulleylab.zerocad.ai')).toBe(
+      'https://pulleylab.zerocad.ai/api/google/callback',
+    );
+  });
+
+  it('allows a fit change for 7 days and denies a different tooth count', () => {
+    const fit = accessDecision({
+      ...entitlement,
+      current: { ...base, bore: 8, d_flat: 6, clearance: 0.2 },
+    });
+    expect(fit).toEqual({ allowed: true, revise: true });
+    expect(accessDecision({ ...entitlement, current: { ...base, teeth: 60 } })).toMatchObject({
+      allowed: false,
+      reason: 'design',
+    });
+    expect(
+      accessDecision({
+        ...entitlement,
+        now: entitlement.adjustmentDeadline + 1,
+        current: { ...base, bore: 12 },
+      }).allowed,
+    ).toBe(false);
+  });
+
+  it('accepts only a signed Google ID token for this client and nonce', () => {
+    const { publicKey, privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+    const jwk = publicKey.export({ format: 'jwk' }) as JsonWebKey & { kid?: string };
+    jwk.kid = 'test-key';
+    const now = 1_700_000_000;
+    const claims = {
+      iss: 'https://accounts.google.com',
+      aud: 'client-id',
+      exp: now + 60,
+      email: 'Buyer@Example.com',
+      email_verified: true,
+      sub: 'google-subject',
+      nonce: 'nonce-1',
+    };
+    const sign = (payload: Record<string, unknown>, header: Record<string, unknown> = { alg: 'RS256', kid: 'test-key' }) => {
+      const encodedHeader = Buffer.from(JSON.stringify(header)).toString('base64url');
+      const encodedPayload = Buffer.from(JSON.stringify(payload)).toString('base64url');
+      const signature = createSign('RSA-SHA256')
+        .update(`${encodedHeader}.${encodedPayload}`)
+        .sign(privateKey)
+        .toString('base64url');
+      return `${encodedHeader}.${encodedPayload}.${signature}`;
+    };
+    expect(googleIdentityFromClaims(claims, 'client-id', now, 'nonce-1')).toEqual({
+      sub: 'google-subject',
+      email: 'buyer@example.com',
+    });
+    expect(googleIdentityFromClaims({ ...claims, email_verified: false }, 'client-id', now, 'nonce-1')).toBeNull();
+    expect(googleIdentityFromClaims(claims, 'client-id', now, 'other-nonce')).toBeNull();
+    expect(verifyGoogleIdToken(sign(claims), 'client-id', [jwk], now, 'nonce-1')).toEqual({
+      sub: 'google-subject',
+      email: 'buyer@example.com',
+    });
+    const forged = sign(claims).replace(/.$/, (char) => (char === 'a' ? 'b' : 'a'));
+    expect(verifyGoogleIdToken(forged, 'client-id', [jwk], now, 'nonce-1')).toBeNull();
+    expect(verifyGoogleIdToken(sign(claims, { alg: 'none', kid: 'test-key' }), 'client-id', [jwk], now, 'nonce-1')).toBeNull();
+    expect(verifyGoogleIdToken(sign({ ...claims, aud: 'other-client' }), 'client-id', [jwk], now, 'nonce-1')).toBeNull();
   });
 });

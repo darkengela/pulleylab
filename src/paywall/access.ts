@@ -202,3 +202,80 @@ export function recoveryDecision(input: {
     return 'allow';
   return 'deny';
 }
+
+/** Both values are required. A client id alone cannot finish the code exchange. */
+export function googleAuthConfigured(env: Record<string, string | undefined>) {
+  return Boolean(env.GOOGLE_CLIENT_ID?.trim() && env.GOOGLE_CLIENT_SECRET?.trim());
+}
+
+/** Checkout-email recovery stays only while Google sign-in is not configured. */
+export function recoveryAvailable(env: Record<string, string | undefined>) {
+  return !googleAuthConfigured(env);
+}
+
+const CHECKOUT_SESSION = /^cs_[A-Za-z0-9_]{8,200}$/;
+
+export function validCheckoutSessionId(value: unknown) {
+  return typeof value === 'string' && CHECKOUT_SESSION.test(value);
+}
+
+export const PUBLIC_SITE = 'https://pulleylab.zerocad.ai';
+export const GOOGLE_REDIRECT_PATH = '/api/google/callback';
+
+/** The OAuth client has one production redirect. The protected Vercel host is not it. */
+export function googleRedirectUriForHost(host: string) {
+  const bare = host.split(',')[0]?.trim().toLowerCase() ?? '';
+  if (/^(localhost|127\.0\.0\.1)(:\d+)?$/.test(bare)) return `http://${bare}${GOOGLE_REDIRECT_PATH}`;
+  return `${PUBLIC_SITE}${GOOGLE_REDIRECT_PATH}`;
+}
+
+export type GoogleIdentity = { sub: string; email: string };
+
+/**
+ * Claims from a Google ID token. The signature is checked before this runs.
+ * A typed email, a success URL, or an unverified token does not produce an identity.
+ */
+export function googleIdentityFromClaims(
+  claims: {
+    iss?: unknown;
+    aud?: unknown;
+    exp?: unknown;
+    email?: unknown;
+    email_verified?: unknown;
+    sub?: unknown;
+    nonce?: unknown;
+  },
+  clientId: string,
+  nowSeconds: number,
+  nonce: string,
+): GoogleIdentity | null {
+  if (!clientId || !nonce) return null;
+  if (claims.iss !== 'https://accounts.google.com' && claims.iss !== 'accounts.google.com') return null;
+  const audience = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
+  if (!audience.includes(clientId)) return null;
+  if (typeof claims.exp !== 'number' || claims.exp <= nowSeconds) return null;
+  if (claims.email_verified !== true) return null;
+  if (typeof claims.sub !== 'string' || !claims.sub || claims.sub.length > 255) return null;
+  if (typeof claims.email !== 'string') return null;
+  const email = claims.email.trim().toLowerCase();
+  if (!email.includes('@') || email.length > 320) return null;
+  if (claims.nonce !== nonce) return null;
+  return { sub: claims.sub, email };
+}
+
+/**
+ * A paid Checkout session is saved only to the Google account whose verified
+ * email is the Stripe receipt email. Unpaid sessions and a mismatched account do not attach.
+ */
+export function attachDecision(input: {
+  orderStatus: string | null;
+  purchaseEmail: string | null;
+  googleEmail: string | null;
+  emailVerified: boolean;
+}): 'attach' | 'deny' {
+  if (!input.emailVerified || input.orderStatus !== 'paid') return 'deny';
+  const purchase = (input.purchaseEmail ?? '').trim().toLowerCase();
+  const google = (input.googleEmail ?? '').trim().toLowerCase();
+  if (!purchase || !google || purchase !== google) return 'deny';
+  return 'attach';
+}

@@ -1,7 +1,7 @@
 import { track } from '@vercel/analytics';
 import { upload } from '@vercel/blob/client';
 import type { Parameters } from '../cad/parameters';
-import { designKey } from './access';
+import { designKey, validCheckoutSessionId } from './access';
 
 // Soft gate: STEP and STL are still generated in the browser. A grant only
 // decides whether this page may save that local file. It is not a DRM boundary.
@@ -40,6 +40,14 @@ export function saveGrant(profile: string, teeth: number, grant: StoredGrant) {
   sessionStorage.setItem(STORAGE, JSON.stringify(all));
 }
 
+export function clearGrants() {
+  try {
+    sessionStorage.removeItem(STORAGE);
+  } catch {
+    // A blocked storage API still leaves the server session as the authority.
+  }
+}
+
 function remember(grants: GrantPayload[] | undefined) {
   for (const grant of grants ?? [])
     saveGrant(grant.profile, grant.teeth, { token: grant.token, designId: grant.designId });
@@ -75,6 +83,8 @@ export async function startCheckout(parameters: Parameters) {
   return body.url;
 }
 
+export type ClaimResult = 'unlocked' | 'signin' | 'mismatch' | 'pending' | 'locked';
+
 /** Only a successful Checkout return carries a session id. Canceled stays locked. */
 export function returnSessionId(search: string) {
   const params = new URLSearchParams(search);
@@ -88,25 +98,78 @@ export function paymentReturnMessage(claimed: boolean) {
     : 'Payment is not confirmed yet. Downloads stay locked.';
 }
 
-export async function claimSession(sessionId: string) {
+export function signInHref(sessionId?: string | null) {
+  if (sessionId && validCheckoutSessionId(sessionId))
+    return `/api/google/start?session_id=${encodeURIComponent(sessionId)}`;
+  return '/api/google/start';
+}
+
+export type SavedDesign = GrantPayload & {
+  parameters: Record<string, unknown>;
+  adjustmentDeadline: string;
+};
+
+export async function loadAccount(): Promise<{
+  google: boolean;
+  signedIn: boolean;
+  designs: SavedDesign[];
+}> {
+  try {
+    const response = await fetch('/api/account', { credentials: 'same-origin' });
+    if (!response.ok) return { google: false, signedIn: false, designs: [] };
+    const body = (await response.json()) as {
+      google?: boolean;
+      signedIn?: boolean;
+      designs?: SavedDesign[];
+    };
+    const designs = Array.isArray(body.designs) ? body.designs : [];
+    if (body.signedIn)
+      remember(designs.filter((design) => design.token && design.designId && design.profile));
+    return { google: Boolean(body.google), signedIn: Boolean(body.signedIn), designs };
+  } catch {
+    return { google: false, signedIn: false, designs: [] };
+  }
+}
+
+export async function signOut() {
+  await fetch('/api/account', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ action: 'logout' }),
+  });
+  clearGrants();
+}
+
+export async function claimSession(sessionId: string): Promise<ClaimResult> {
   try {
     const response = await fetch('/api/entitlement', {
       method: 'POST',
+      credentials: 'same-origin',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ sessionId }),
     });
-    if (!response.ok) return false;
-    const body = (await response.json()) as { status?: string; grants?: GrantPayload[] };
-    if (body.status !== 'paid' || !body.grants?.length) return false;
-    remember(body.grants);
-    try {
-      track('purchase_completed');
-    } catch {
-      // Analytics must not hide a completed purchase.
+    if (!response.ok) return response.status >= 500 ? 'pending' : 'locked';
+    const body = (await response.json()) as {
+      status?: string;
+      needsSignIn?: boolean;
+      mismatch?: boolean;
+      grants?: GrantPayload[];
+    };
+    if (body.status === 'paid' && body.needsSignIn) return body.mismatch ? 'mismatch' : 'signin';
+    if (body.status === 'paid' && body.grants?.length) {
+      remember(body.grants);
+      try {
+        track('purchase_completed');
+      } catch {
+        // Analytics must not hide a completed purchase.
+      }
+      return 'unlocked';
     }
-    return true;
+    if (body.status === 'pending') return 'pending';
+    return 'locked';
   } catch {
-    return false;
+    return 'pending';
   }
 }
 
@@ -166,4 +229,29 @@ export async function fileForDownload(parameters: Parameters, kind: 'step' | 'st
     if (error instanceof Error && (error.message === 'locked' || error.message === 'expired')) throw error;
   }
   return local;
+}
+
+/** A stored STEP or STL for a signed-in design. Null means the browser still has to generate it once. */
+export async function downloadStoredFile(parameters: Parameters, kind: 'step' | 'stl') {
+  const grant = readGrants()[designKey(parameters)];
+  if (!grant) throw Error('locked');
+  const response = await fetch(FILE_URL, {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      action: 'download',
+      grant: grant.token,
+      designId: grant.designId,
+      kind,
+      parameters,
+    }),
+  });
+  if (response.status === 404) return null;
+  if (response.status === 403) {
+    const body = (await response.json().catch(() => ({}))) as { reason?: string };
+    throw Error(body.reason === 'expired' ? 'expired' : 'locked');
+  }
+  if (!response.ok) throw Error('offline');
+  return response.blob();
 }
